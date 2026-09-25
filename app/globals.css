@@ -1,26 +1,64 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  /* Surfaces */
+  --color-canvas: #0a090b;
+  --color-elevated: #120f13;
+  --color-panel: #17131a;
+  --color-panel-hover: #201a22;
+
+  /* Lines */
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-line-strong: rgba(255, 255, 255, 0.16);
+
+  /* Text */
+  --color-ink: #f4f1f2;
+  --color-muted: #a39ca1;
+  --color-faint: #6e666c;
+
+  /* Brand */
+  --color-brand: #e11d48;
+  --color-brand-deep: #9f1239;
+  --color-brand-soft: rgba(225, 29, 72, 0.14);
+  --color-success: #34d399;
+  --color-danger: #f87171;
+
+  /* Typography */
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-unbounded), var(--font-manrope), sans-serif;
+
+  /* Radii: 8 / 12 / 16 / 24 / 32 */
+  --radius-tile: 1rem; /* 16px */
+  --radius-card: 1.5rem; /* 24px */
+  --radius-panel: 2rem; /* 32px */
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+@layer base {
+  html {
+    color-scheme: dark;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: rgba(225, 29, 72, 0.35);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@utility container-page {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 72rem;
+  padding-inline: 1.25rem;
 }
