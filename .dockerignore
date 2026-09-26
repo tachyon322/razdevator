@@ -1,0 +1,26 @@
+node_modules
+.next
+out
+build
+
+# локальная БД
+data
+*.db
+*.db-journal
+
+# env и секреты
+.env
+.env.*
+!.env.example
+
+# прочее
+.git
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+better-auth_migrations
+coverage
+*.tsbuildinfo
+next-env.d.ts
+README.md

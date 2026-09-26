@@ -1,0 +1,12 @@
+services:
+  web:
+    build: .
+    image: razdevator:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_PORT:-3200}:3000"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data
