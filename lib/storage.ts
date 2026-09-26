@@ -4,6 +4,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -138,6 +139,8 @@ export interface StoredObject {
   contentLength?: number;
   contentRange?: string;
   statusCode?: number;
+  etag?: string;
+  lastModified?: Date;
 }
 
 export async function getObject(
@@ -171,7 +174,42 @@ export async function getObject(
     contentLength: out.ContentLength,
     contentRange: out.ContentRange,
     statusCode: out.$metadata?.httpStatusCode,
+    etag: out.ETag,
+    lastModified: out.LastModified,
   };
+}
+
+export interface ObjectMeta {
+  etag?: string;
+  lastModified?: Date;
+  contentLength?: number;
+  contentType?: string;
+}
+
+/**
+ * Метаданные объекта без тела — для условных запросов (`If-None-Match`).
+ * Возвращает `null`, если объекта нет.
+ */
+export async function headObject(key: string): Promise<ObjectMeta | null> {
+  try {
+    const out = await getClient().send(
+      new HeadObjectCommand({ Bucket: bucketName(), Key: key }),
+    );
+    return {
+      etag: out.ETag,
+      lastModified: out.LastModified,
+      contentLength: out.ContentLength,
+      contentType: out.ContentType,
+    };
+  } catch (error) {
+    const name = (error as { name?: string }).name;
+    const status = (error as { $metadata?: { httpStatusCode?: number } })
+      .$metadata?.httpStatusCode;
+    if (name === "NotFound" || name === "NoSuchKey" || status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function deleteObject(key: string): Promise<void> {

@@ -1,9 +1,20 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getObject, isOwnedBy, type ObjectRange } from "@/lib/storage";
+import {
+  getObject,
+  headObject,
+  isOwnedBy,
+  type ObjectRange,
+} from "@/lib/storage";
 
 export const runtime = "nodejs";
+
+/**
+ * Медиа неизменяемо: ключи — UUID, объекты не перезаписываются. Поэтому
+ * отдаём агрессивный приватный кеш и поддержку `304 Not Modified`.
+ */
+const CACHE_CONTROL = "private, max-age=31536000, immutable";
 
 /** Разбирает заголовок Range вида `bytes=start-end`. */
 function parseRange(value: string | null): ObjectRange | null {
@@ -15,6 +26,29 @@ function parseRange(value: string | null): ObjectRange | null {
   const end = match[2] ? Number(match[2]) : undefined;
   if (end !== undefined && (!Number.isFinite(end) || end < start)) return null;
   return { start, end };
+}
+
+/** Убирает `W/` и кавычки, чтобы сравнить ETag-и. */
+function normalizeEtag(value: string): string {
+  return value.trim().replace(/^W\//, "").replace(/"/g, "");
+}
+
+/** `If-None-Match`: совпадает ли список тегов (или `*`) с текущим ETag. */
+function ifNoneMatchMatches(header: string, etag?: string): boolean {
+  if (!etag) return false;
+  if (header.trim() === "*") return true;
+  const target = normalizeEtag(etag);
+  return header.split(",").some((raw) => normalizeEtag(raw) === target);
+}
+
+/** `If-Modified-Since`: объект не менялся после указанной даты. */
+function ifModifiedSinceMatches(header: string, lastModified?: Date): boolean {
+  if (!lastModified) return false;
+  const since = Date.parse(header);
+  if (!Number.isFinite(since)) return false;
+  // HTTP-даты имеют секундную точность.
+  const modified = Math.floor(lastModified.getTime() / 1000) * 1000;
+  return modified <= since;
 }
 
 export async function GET(
@@ -34,16 +68,53 @@ export async function GET(
   }
 
   const range = parseRange(request.headers.get("range"));
+  const ifNoneMatch = request.headers.get("if-none-match");
+  const ifModifiedSince = request.headers.get("if-modified-since");
+
+  // Условный запрос: проверяем метаданные, тело не качаем.
+  if (ifNoneMatch || ifModifiedSince) {
+    try {
+      const meta = await headObject(key);
+      if (!meta) {
+        return NextResponse.json({ message: "Файл не найден" }, { status: 404 });
+      }
+      const notModified = ifNoneMatch
+        ? ifNoneMatchMatches(ifNoneMatch, meta.etag)
+        : ifModifiedSinceMatches(ifModifiedSince ?? "", meta.lastModified);
+      if (notModified) {
+        const notModifiedHeaders = new Headers({
+          "Cache-Control": CACHE_CONTROL,
+          "Accept-Ranges": "bytes",
+          "X-Content-Type-Options": "nosniff",
+        });
+        if (meta.etag) notModifiedHeaders.set("ETag", meta.etag);
+        if (meta.lastModified) {
+          notModifiedHeaders.set("Last-Modified", meta.lastModified.toUTCString());
+        }
+        return new Response(null, { status: 304, headers: notModifiedHeaders });
+      }
+    } catch (error) {
+      // Сбой HEAD не должен ломать выдачу — просто отдаём файл как обычно.
+      console.error("[files] ошибка HEAD:", error);
+    }
+  }
 
   try {
     const object = await getObject(key, range ?? undefined);
     const responseHeaders = new Headers({
       "Content-Type": object.contentType,
-      "Cache-Control": "private, max-age=3600",
+      "Cache-Control": CACHE_CONTROL,
       "Accept-Ranges": "bytes",
+      "X-Content-Type-Options": "nosniff",
     });
     if (object.contentLength !== undefined) {
       responseHeaders.set("Content-Length", String(object.contentLength));
+    }
+    if (object.etag) {
+      responseHeaders.set("ETag", object.etag);
+    }
+    if (object.lastModified) {
+      responseHeaders.set("Last-Modified", object.lastModified.toUTCString());
     }
     if (range) {
       if (object.contentRange) {
