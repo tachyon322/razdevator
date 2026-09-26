@@ -1,5 +1,6 @@
 import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
+import { MobileBottomNav } from "../components/MobileBottomNav";
 
 export default function MarketingLayout({
   children,
@@ -11,6 +12,7 @@ export default function MarketingLayout({
       <Navbar />
       <div className="flex flex-1 flex-col">{children}</div>
       <Footer />
+      <MobileBottomNav />
     </>
   );
 }

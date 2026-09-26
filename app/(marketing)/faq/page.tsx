@@ -86,12 +86,18 @@ export default function FaqPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <a
-              href="#support"
+            <Link
+              href="/support"
               className="inline-flex h-12 items-center justify-center rounded-full border border-line-strong px-6 text-sm font-semibold text-ink transition-colors hover:bg-panel-hover"
             >
               Поддержка
-            </a>
+            </Link>
+            <Link
+              href="/gallery"
+              className="inline-flex h-12 items-center justify-center rounded-full border border-line-strong px-6 text-sm font-semibold text-ink transition-colors hover:bg-panel-hover"
+            >
+              Галерея
+            </Link>
             <Link
               href="/pricing"
               className="inline-flex h-12 items-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-6 text-sm font-semibold text-white shadow-[0_14px_40px_-16px_rgba(225,29,72,0.9)] transition-transform hover:-translate-y-0.5"

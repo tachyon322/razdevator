@@ -177,6 +177,24 @@ export function HeartIcon(props: IconProps) {
   );
 }
 
+export function MailIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="5" width="18" height="14" rx="3" />
+      <path d="m4.5 8 7.5 5.5L19.5 8" />
+    </svg>
+  );
+}
+
+export function TelegramIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M21.5 3.5 2.8 10.9l5.4 1.9 2 5.7 2.9-4.1 4.5 3.2z" />
+      <path d="m8.2 12.8 13.3-9.3" />
+    </svg>
+  );
+}
+
 export function GridIcon(props: IconProps) {
   return (
     <svg {...base} {...props}>
