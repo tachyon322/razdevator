@@ -205,3 +205,11 @@ export function GridIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function SpinnerIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 3a9 9 0 1 1-9 9" />
+    </svg>
+  );
+}

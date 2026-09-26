@@ -6,6 +6,7 @@ import {
   HeartIcon,
   RefreshIcon,
   SparkIcon,
+  SpinnerIcon,
   WandIcon,
 } from "../icons";
 
@@ -91,6 +92,7 @@ export function ResultView({
   assets,
   favorite,
   error,
+  busy,
   onToggleFavorite,
   onAgain,
   onReset,
@@ -104,6 +106,7 @@ export function ResultView({
   assets: ResultAsset[];
   favorite: boolean;
   error: string | null;
+  busy: boolean;
   onToggleFavorite: () => void;
   onAgain: () => void;
   onReset: () => void;
@@ -164,10 +167,15 @@ export function ResultView({
           <button
             type="button"
             onClick={onAgain}
-            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-6 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5"
+            disabled={busy}
+            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-6 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5 disabled:cursor-wait disabled:hover:translate-y-0"
           >
-            <RefreshIcon className="size-4" />
-            Попробовать снова
+            {busy ? (
+              <SpinnerIcon className="size-4 animate-spin" />
+            ) : (
+              <RefreshIcon className="size-4" />
+            )}
+            {busy ? "Отправляем…" : "Попробовать снова"}
           </button>
           <button
             type="button"
@@ -257,10 +265,18 @@ export function ResultView({
           <button
             type="button"
             onClick={onAgain}
-            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full border border-line-strong text-sm font-semibold text-ink transition-colors hover:bg-panel-hover"
+            disabled={busy}
+            className={[
+              "inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full border border-line-strong text-sm font-semibold text-ink transition-colors hover:bg-panel-hover",
+              busy ? "cursor-wait disabled:cursor-wait" : "",
+            ].join(" ")}
           >
-            <RefreshIcon className="size-4" />
-            Ещё вариант
+            {busy ? (
+              <SpinnerIcon className="size-4 animate-spin" />
+            ) : (
+              <RefreshIcon className="size-4" />
+            )}
+            {busy ? "Отправляем…" : "Ещё вариант"}
           </button>
           <button
             type="button"

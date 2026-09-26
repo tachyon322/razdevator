@@ -13,7 +13,7 @@ import {
   type StudioMode,
   type VideoResolution,
 } from "./presets";
-import { BoltIcon, CheckIcon } from "../icons";
+import { BoltIcon, CheckIcon, SpinnerIcon } from "../icons";
 
 export function StylePicker({
   mode,
@@ -33,6 +33,7 @@ export function StylePicker({
   onAudio,
   left,
   limit,
+  busy,
   onGenerate,
 }: {
   mode: StudioMode;
@@ -52,6 +53,7 @@ export function StylePicker({
   onAudio: (v: boolean) => void;
   left: number;
   limit: number;
+  busy: boolean;
   onGenerate: () => void;
 }) {
   const selectedCount = STYLE_CATEGORIES.filter((c) =>
@@ -306,12 +308,34 @@ export function StylePicker({
         <button
           type="button"
           onClick={onGenerate}
-          disabled={!allSelected || outOfLimit}
-          className="inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-6 text-[15px] font-semibold text-white shadow-[0_14px_40px_-16px_rgba(225,29,72,0.9)] transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+          disabled={!allSelected || outOfLimit || busy}
+          aria-busy={busy}
+          className={[
+            "inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-6 text-[15px] font-semibold text-white shadow-[0_14px_40px_-16px_rgba(225,29,72,0.9)] transition-transform",
+            busy
+              ? "cursor-wait disabled:cursor-wait"
+              : "hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0",
+          ].join(" ")}
         >
-          <BoltIcon className="size-5" />
-          {mode === "video" ? "Сгенерировать видео" : "Сгенерировать"}
+          {busy ? (
+            <>
+              <SpinnerIcon className="size-5 animate-spin" />
+              Отправляем фото…
+            </>
+          ) : (
+            <>
+              <BoltIcon className="size-5" />
+              {mode === "video" ? "Сгенерировать видео" : "Сгенерировать"}
+            </>
+          )}
         </button>
+
+        {busy && (
+          <p className="text-center text-xs text-muted">
+            Загружаем фото и запускаем генерацию — обычно это занимает несколько
+            секунд.
+          </p>
+        )}
 
         {!allSelected && !outOfLimit && (
           <p className="text-center text-xs text-faint">

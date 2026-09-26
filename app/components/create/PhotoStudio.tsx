@@ -65,6 +65,8 @@ export function PhotoStudio({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const previewRef = useRef<string | null>(null);
+  const topRef = useRef<HTMLDivElement>(null);
+  const didMountRef = useRef(false);
 
   const [selections, setSelections] = useState<Selections>(emptySelections);
   const [ratio, setRatio] = useState<Ratio>("3:4");
@@ -94,6 +96,17 @@ export function PhotoStudio({
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
     };
   }, []);
+
+  // При смене шага прокручиваем студию к началу. Иначе на мобильном после
+  // нажатия «Сгенерировать» внизу длинной формы результат рендерится сверху
+  // и остаётся за пределами экрана — кажется, что ничего не произошло.
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [step]);
 
   const jobId = job?.id ?? null;
   const jobStatus = job?.status ?? null;
@@ -330,7 +343,7 @@ export function PhotoStudio({
   }));
 
   return (
-    <div className="flex flex-col gap-8">
+    <div ref={topRef} className="flex scroll-mt-24 flex-col gap-8">
       {/* Режим */}
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="inline-flex rounded-full border border-line bg-panel p-1">
@@ -429,6 +442,7 @@ export function PhotoStudio({
                 onAudio={setAudio}
                 left={left}
                 limit={limit}
+                busy={busy}
                 onGenerate={startGeneration}
               />
 
@@ -449,20 +463,28 @@ export function PhotoStudio({
           )}
 
           {step === 3 && previewUrl && job && (
-            <ResultView
-              status={job.status}
-              kind={job.kind}
-              progress={progress}
-              stageLabel={stageLabelFor(mode, progress)}
-              beforeUrl={previewUrl}
-              assets={resultAssets}
-              favorite={favorite}
-              error={job.error}
-              onToggleFavorite={toggleFavorite}
-              onAgain={startGeneration}
-              onReset={reset}
-              onDownload={download}
-            />
+            <>
+              {startError && (
+                <p className="mb-4 rounded-tile border border-brand/40 bg-brand-soft px-4 py-3 text-sm text-ink">
+                  {startError}
+                </p>
+              )}
+              <ResultView
+                status={job.status}
+                kind={job.kind}
+                progress={progress}
+                stageLabel={stageLabelFor(mode, progress)}
+                beforeUrl={previewUrl}
+                assets={resultAssets}
+                favorite={favorite}
+                error={job.error}
+                busy={busy}
+                onToggleFavorite={toggleFavorite}
+                onAgain={startGeneration}
+                onReset={reset}
+                onDownload={download}
+              />
+            </>
           )}
 
           {step === 3 && (!previewUrl || !job) && (
