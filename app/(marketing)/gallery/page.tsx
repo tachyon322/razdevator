@@ -1,7 +1,8 @@
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { listGenerations } from "@/lib/db";
-import { toGenerationDTO } from "@/lib/generation-dto";
+import { toGenerationSummaryDTO } from "@/lib/generation-dto";
+import { encodeCursor, GALLERY_PAGE_SIZE } from "@/lib/pagination";
 import { GalleryClient } from "@/app/components/gallery/GalleryClient";
 import { DemoGallery } from "@/app/components/gallery/DemoGallery";
 import { GridIcon } from "@/app/components/icons";
@@ -19,7 +20,14 @@ export default async function GalleryPage() {
     return <DemoGallery />;
   }
 
-  const generations = listGenerations(session.user.id, { limit: 200 });
+  const generations = listGenerations(session.user.id, {
+    limit: GALLERY_PAGE_SIZE,
+  });
+  const last = generations[generations.length - 1];
+  const nextCursor =
+    generations.length === GALLERY_PAGE_SIZE && last
+      ? encodeCursor(last)
+      : null;
 
   return (
     <main className="flex-1 py-14 sm:py-20">
@@ -40,7 +48,10 @@ export default async function GalleryPage() {
         </div>
 
         <div className="mt-10">
-          <GalleryClient initial={generations.map(toGenerationDTO)} />
+          <GalleryClient
+            initial={generations.map(toGenerationSummaryDTO)}
+            initialCursor={nextCursor}
+          />
         </div>
       </div>
     </main>

@@ -33,6 +33,21 @@ export interface GenerationDTO {
   assets: GenerationAssetDTO[];
 }
 
+/**
+ * Урезанное представление для списков: без промпта и параметров, чтобы
+ * не раздувать ответ галереи. Промпт догружается вместе с деталями.
+ */
+export interface GenerationSummaryDTO {
+  id: string;
+  kind: "image" | "video";
+  status: GenerationStatus;
+  error: string | null;
+  favorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+  assets: GenerationAssetDTO[];
+}
+
 /** Ссылка на файл по S3-ключу (сегменты кодируются по отдельности). */
 export function fileUrl(key: string): string {
   const path = key
@@ -68,6 +83,21 @@ export function toGenerationDTO(
     error: generation.error,
     favorite: generation.favorite,
     costUsd: generation.costUsd,
+    createdAt: generation.createdAt,
+    updatedAt: generation.updatedAt,
+    assets: generation.assets.map(toAssetDTO),
+  };
+}
+
+export function toGenerationSummaryDTO(
+  generation: GenerationWithAssets,
+): GenerationSummaryDTO {
+  return {
+    id: generation.id,
+    kind: generation.kind,
+    status: generation.status,
+    error: generation.error,
+    favorite: generation.favorite,
     createdAt: generation.createdAt,
     updatedAt: generation.updatedAt,
     assets: generation.assets.map(toAssetDTO),

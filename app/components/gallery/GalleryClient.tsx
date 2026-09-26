@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRightIcon,
@@ -11,7 +11,11 @@ import {
   RefreshIcon,
   TrashIcon,
 } from "@/app/components/icons";
-import type { GenerationDTO } from "@/lib/generation-dto";
+import type {
+  GenerationDTO,
+  GenerationSummaryDTO,
+} from "@/lib/generation-dto";
+import { GALLERY_PAGE_SIZE } from "@/lib/pagination";
 
 type Tab = "all" | "image" | "video" | "favorite";
 
@@ -30,16 +34,25 @@ function formatDate(value: string): string {
   });
 }
 
-function primaryAsset(item: GenerationDTO) {
+function primaryAsset(item: GenerationSummaryDTO) {
   return item.assets[0] ?? null;
 }
 
-export function GalleryClient({ initial }: { initial: GenerationDTO[] }) {
+export function GalleryClient({
+  initial,
+  initialCursor,
+}: {
+  initial: GenerationSummaryDTO[];
+  initialCursor: string | null;
+}) {
   const [items, setItems] = useState(initial);
+  const [cursor, setCursor] = useState(initialCursor);
   const [tab, setTab] = useState<Tab>("all");
   const [openId, setOpenId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [prompts, setPrompts] = useState<Record<string, string>>({});
 
   const filtered = useMemo(() => {
     if (tab === "all") return items;
@@ -58,20 +71,80 @@ export function GalleryClient({ initial }: { initial: GenerationDTO[] }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  // Промпт догружается отдельно и кешируется, чтобы список оставался лёгким.
+  useEffect(() => {
+    if (!openId || prompts[openId] !== undefined) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/generations/${openId}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as GenerationDTO;
+        if (cancelled) return;
+        setPrompts((prev) => ({ ...prev, [openId]: data.prompt }));
+      } catch {
+        // промпт просто не покажется
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openId, prompts]);
+
+  const firstPage = useCallback(async () => {
+    const res = await fetch(`/api/generations?limit=${GALLERY_PAGE_SIZE}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as {
+      generations: GenerationSummaryDTO[];
+      nextCursor: string | null;
+    };
+  }, []);
+
   const refresh = async () => {
     setRefreshing(true);
     try {
-      const res = await fetch("/api/generations", { cache: "no-store" });
-      if (res.ok) {
-        const data = (await res.json()) as { generations: GenerationDTO[] };
+      const data = await firstPage();
+      if (data) {
         setItems(data.generations);
+        setCursor(data.nextCursor);
+        setPrompts({});
       }
     } finally {
       setRefreshing(false);
     }
   };
 
-  const toggleFavorite = async (item: GenerationDTO) => {
+  const loadMore = async () => {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(
+        `/api/generations?limit=${GALLERY_PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        generations: GenerationSummaryDTO[];
+        nextCursor: string | null;
+      };
+      setItems((prev) => {
+        const seen = new Set(prev.map((item) => item.id));
+        return [
+          ...prev,
+          ...data.generations.filter((item) => !seen.has(item.id)),
+        ];
+      });
+      setCursor(data.nextCursor);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const toggleFavorite = async (item: GenerationSummaryDTO) => {
     const next = !item.favorite;
     setItems((prev) =>
       prev.map((it) => (it.id === item.id ? { ...it, favorite: next } : it)),
@@ -91,7 +164,7 @@ export function GalleryClient({ initial }: { initial: GenerationDTO[] }) {
     }
   };
 
-  const remove = async (item: GenerationDTO) => {
+  const remove = async (item: GenerationSummaryDTO) => {
     if (!window.confirm("Удалить генерацию? Действие необратимо.")) return;
     setBusyId(item.id);
     try {
@@ -174,9 +247,22 @@ export function GalleryClient({ initial }: { initial: GenerationDTO[] }) {
         </div>
       )}
 
+      {cursor && (
+        <button
+          type="button"
+          onClick={loadMore}
+          disabled={loadingMore}
+          className="mx-auto inline-flex h-11 items-center gap-2 rounded-full border border-line-strong px-5 text-sm font-semibold text-ink transition-colors hover:bg-panel-hover disabled:opacity-60"
+        >
+          {loadingMore && <RefreshIcon className="size-4 animate-spin" />}
+          Показать ещё
+        </button>
+      )}
+
       {open && (
         <Lightbox
           item={open}
+          prompt={prompts[open.id] ?? null}
           busy={busyId === open.id}
           onClose={() => setOpenId(null)}
           onFavorite={() => toggleFavorite(open)}
@@ -194,7 +280,7 @@ function GalleryCard({
   onOpen,
   onFavorite,
 }: {
-  item: GenerationDTO;
+  item: GenerationSummaryDTO;
   busy: boolean;
   onOpen: () => void;
   onFavorite: () => void;
@@ -279,13 +365,15 @@ function GalleryCard({
 
 function Lightbox({
   item,
+  prompt,
   busy,
   onClose,
   onFavorite,
   onDelete,
   onDownload,
 }: {
-  item: GenerationDTO;
+  item: GenerationSummaryDTO;
+  prompt: string | null;
   busy: boolean;
   onClose: () => void;
   onFavorite: () => void;
@@ -351,9 +439,9 @@ function Lightbox({
           )}
         </div>
 
-        {item.prompt && (
+        {prompt && (
           <p className="max-h-24 overflow-auto border-t border-line px-4 py-3 text-xs leading-relaxed text-faint">
-            {item.prompt}
+            {prompt}
           </p>
         )}
 

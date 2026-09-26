@@ -285,6 +285,7 @@ export interface ListGenerationsOptions {
   kind?: GenerationKind;
   favorite?: boolean;
   limit?: number;
+  before?: { createdAt: string; id: string };
 }
 
 export function listGenerations(
@@ -301,10 +302,17 @@ export function listGenerations(
   if (options.favorite) {
     where.push(`"favorite" = 1`);
   }
+  if (options.before) {
+    where.push(
+      `("createdAt" < @beforeCreatedAt OR ("createdAt" = @beforeCreatedAt AND "id" < @beforeId))`,
+    );
+    params.beforeCreatedAt = options.before.createdAt;
+    params.beforeId = options.before.id;
+  }
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 200);
 
   const rows = stmt(
-    `SELECT * FROM "generation" WHERE ${where.join(" AND ")} ORDER BY "createdAt" DESC LIMIT @limit`,
+    `SELECT * FROM "generation" WHERE ${where.join(" AND ")} ORDER BY "createdAt" DESC, "id" DESC LIMIT @limit`,
   ).all({ ...params, limit }) as GenerationRow[];
 
   if (rows.length === 0) return [];
