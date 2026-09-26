@@ -25,7 +25,10 @@ import { ArrowRightIcon, CameraIcon, SparkIcon } from "../icons";
 const MAX_SIZE = 10 * 1024 * 1024;
 const MIN_SIDE = 512;
 const TYPES = ["image/jpeg", "image/png", "image/webp"];
-const POLL_MS = 2500;
+const POLL_START_MS = 2500;
+const POLL_SLOW_MS = 5000;
+const POLL_IDLE_MS = 8000;
+const POLL_MAX_BACKOFF_MS = 10_000;
 
 async function imageSize(file: File): Promise<{ width: number; height: number }> {
   const bitmap = await createImageBitmap(file);
@@ -119,16 +122,36 @@ export function PhotoStudio({
     return () => window.clearInterval(id);
   }, [jobId, jobStatus]);
 
-  // Поллинг статуса генерации.
+  // Поллинг статуса генерации: самопланирующийся таймер вместо setInterval,
+  // чтобы запросы не наслаивались. На скрытой вкладке опрос приостанавливается,
+  // а при возврате выполняется сразу. Интервал растёт по мере ожидания, при
+  // ошибке — небольшой backoff.
   useEffect(() => {
     if (!jobId || jobStatus === "succeeded" || jobStatus === "failed") return;
     let cancelled = false;
-    const tick = async () => {
+    let timer: number | null = null;
+    let controller: AbortController | null = null;
+    let delay = POLL_START_MS;
+    const startedAt = Date.now();
+
+    const clear = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const run = async () => {
+      if (cancelled || document.hidden) return;
+      controller?.abort();
+      controller = new AbortController();
+      let next = delay;
       try {
         const res = await fetch(`/api/generations/${jobId}`, {
           cache: "no-store",
+          signal: controller.signal,
         });
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as GenerationDTO;
         if (cancelled) return;
         setJob(data);
@@ -139,15 +162,42 @@ export function PhotoStudio({
               ? 3
               : Number(data.params.count ?? 1) || 1;
           setLeft((value) => Math.max(0, value - weight));
+          return;
         }
-      } catch {
-        // сеть мигнула — следующий тик повторит
+        if (data.status === "failed") return;
+        const age = Date.now() - startedAt;
+        next =
+          age > 120_000
+            ? POLL_IDLE_MS
+            : age > 30_000
+              ? POLL_SLOW_MS
+              : POLL_START_MS;
+      } catch (error) {
+        if (cancelled || (error as Error).name === "AbortError") return;
+        next = Math.min(Math.round(delay * 1.5), POLL_MAX_BACKOFF_MS);
+      }
+      delay = next;
+      if (!cancelled && !document.hidden) {
+        clear();
+        timer = window.setTimeout(run, delay);
       }
     };
-    const id = window.setInterval(tick, POLL_MS);
+
+    const onVisibility = () => {
+      if (cancelled || document.hidden) return;
+      clear();
+      delay = POLL_START_MS;
+      void run();
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    void run();
+
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      controller?.abort();
+      clear();
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [jobId, jobStatus]);
 
