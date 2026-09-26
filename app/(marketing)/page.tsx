@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { BannerSlider } from "../components/BannerSlider";
 import {
   ArrowRightIcon,
@@ -57,18 +58,18 @@ export default function Home() {
             </h1>
 
             <p className="mt-5 max-w-xl text-base leading-relaxed text-muted sm:text-lg">
-              Загрузите своё фото, выберите образ — AI сделает всё остальное. Без
+              Загрузите фото, выберите 18+ образ — AI сделает всё остальное. Без
               публикации, без лишних глаз и следов.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <a
-                href="#create"
+              <Link
+                href="/create"
                 className="inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-7 text-[15px] font-semibold text-white shadow-[0_16px_44px_-16px_rgba(225,29,72,0.9)] transition-transform hover:-translate-y-0.5"
               >
                 <UploadIcon className="size-5" />
                 Загрузить фото
-              </a>
+              </Link>
               <a
                 href="#styles"
                 className="inline-flex h-13 items-center justify-center gap-2 rounded-full border border-line-strong px-7 text-[15px] font-semibold text-ink transition-colors hover:bg-panel-hover"
@@ -166,19 +167,19 @@ export default function Home() {
         <div className="container-page">
           <div className="relative overflow-hidden rounded-panel border border-brand/40 bg-[linear-gradient(135deg,rgba(225,29,72,0.22),rgba(159,18,57,0.08))] p-8 text-center sm:p-14">
             <h2 className="mx-auto max-w-xl font-display text-2xl font-extrabold tracking-tight text-ink sm:text-4xl">
-              Готовы увидеть себя в новом образе?
+              Готовы увидеть фото в новом образе?
             </h2>
             <p className="mx-auto mt-4 max-w-md text-muted">
               Первая генерация — за несколько секунд. Приватно и без обязательств.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <a
-                href="#create"
+              <Link
+                href="/create"
                 className="inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-8 text-[15px] font-semibold text-white shadow-[0_16px_44px_-16px_rgba(225,29,72,0.9)] transition-transform hover:-translate-y-0.5"
               >
                 Создать фото
                 <ArrowRightIcon className="size-5" />
-              </a>
+              </Link>
               <a
                 href="/pricing"
                 className="inline-flex h-13 items-center justify-center rounded-full border border-line-strong px-8 text-[15px] font-semibold text-ink transition-colors hover:bg-panel-hover"

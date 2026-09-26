@@ -1,43 +1,12 @@
 import Link from "next/link";
 import { ArrowRightIcon, CheckIcon } from "../../components/icons";
+import { PURCHASABLE_PLANS, formatPrice } from "@/lib/plans";
 
 export const metadata = {
   title: "Тарифы — Раздеватор",
   description:
     "Два месячных тарифа: Базовый за 2000 ₽ и Премиум за 5000 ₽. Оплата картой, отмена в любой момент.",
 };
-
-const PLANS = [
-  {
-    name: "Базовый",
-    price: "2000 ₽",
-    note: "в месяц",
-    tagline: "Для регулярных экспериментов с образами.",
-    features: [
-      "100 генераций в месяц",
-      "Все базовые стили",
-      "Экспорт без водяных знаков",
-      "Стандартная очередь",
-    ],
-    highlighted: true,
-    cta: "Выбрать Базовый",
-  },
-  {
-    name: "Премиум",
-    price: "5000 ₽",
-    note: "в месяц",
-    tagline: "Для тех, кому нужен максимум качества.",
-    features: [
-      "500 генераций в месяц",
-      "Все стили и локации",
-      "Максимальное разрешение",
-      "Приоритетная очередь",
-      "Ранний доступ к новым стилям",
-    ],
-    highlighted: false,
-    cta: "Выбрать Премиум",
-  },
-];
 
 const NOTES = [
   "Оплата картой, списание раз в месяц",
@@ -60,9 +29,9 @@ export default function PricingPage() {
         </div>
 
         <div className="mx-auto mt-10 grid max-w-4xl gap-5 md:grid-cols-2">
-          {PLANS.map((plan) => (
+          {PURCHASABLE_PLANS.map((plan) => (
             <div
-              key={plan.name}
+              key={plan.id}
               className={[
                 "relative flex flex-col rounded-card border p-6 sm:p-7",
                 plan.highlighted
@@ -81,7 +50,7 @@ export default function PricingPage() {
 
               <p className="mt-5 flex items-baseline gap-2">
                 <span className="font-display text-3xl font-extrabold tracking-tight text-ink">
-                  {plan.price}
+                  {formatPrice(plan.price)}
                 </span>
                 <span className="text-sm text-faint">{plan.note}</span>
               </p>

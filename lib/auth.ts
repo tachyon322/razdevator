@@ -14,5 +14,26 @@ export const auth = betterAuth({
     minPasswordLength: 8,
     autoSignIn: true,
   },
+  user: {
+    additionalFields: {
+      plan: {
+        type: "string",
+        required: false,
+        defaultValue: "free",
+        input: false,
+      },
+      generationsUsed: {
+        type: "number",
+        required: false,
+        defaultValue: 0,
+        input: false,
+      },
+      planRenewsAt: {
+        type: "date",
+        required: false,
+        input: false,
+      },
+    },
+  },
   plugins: [nextCookies()],
 });

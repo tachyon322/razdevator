@@ -68,12 +68,12 @@ export function Navbar() {
 
         <div className="hidden lg:flex items-center gap-2">
           <AuthButtons />
-          <a
-            href="#create"
+          <Link
+            href="/create"
             className="inline-flex h-10 items-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-5 text-sm font-semibold text-white shadow-[0_10px_34px_-12px_rgba(225,29,72,0.8)] transition-transform hover:-translate-y-0.5"
           >
             Создать фото
-          </a>
+          </Link>
         </div>
 
         <button
@@ -109,13 +109,13 @@ export function Navbar() {
             })}
             <div className="mt-3 flex flex-col gap-2">
               <AuthButtons variant="mobile" />
-              <a
-                href="#create"
+              <Link
+                href="/create"
                 onClick={() => setOpen(false)}
                 className="grid h-12 place-items-center rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] text-sm font-semibold text-white shadow-[0_10px_34px_-12px_rgba(225,29,72,0.8)]"
               >
                 Создать фото
-              </a>
+              </Link>
             </div>
           </div>
         </div>

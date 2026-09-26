@@ -90,7 +90,7 @@ export function BannerSlider() {
         touchStartX.current = null;
       }}
       tabIndex={0}
-      className="group relative overflow-hidden rounded-card border border-line bg-panel shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)]"
+      className="group relative mx-auto w-full max-w-[768px] overflow-hidden rounded-card border border-line bg-panel shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)]"
     >
       <div className="relative aspect-[16/10] sm:aspect-[2.1/1]">
         {SLIDES.map((slide, i) => (
@@ -107,7 +107,7 @@ export function BannerSlider() {
               alt={slide.alt}
               fill
               priority={i === 0}
-              sizes="(max-width: 768px) 100vw, 1152px"
+              sizes="(max-width: 768px) 100vw, 768px"
               className="object-cover"
             />
           </div>
