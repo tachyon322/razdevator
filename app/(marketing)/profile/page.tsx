@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { getUserUsage } from "@/lib/db";
 import { formatPrice, getPlan } from "@/lib/plans";
 import { SignOutButton } from "../../components/SignOutButton";
 import { ArrowRightIcon, BoltIcon, CheckIcon, ImageIcon } from "../../components/icons";
@@ -27,8 +28,9 @@ export default async function ProfilePage() {
   const label = user.name || user.email;
   const initial = label.trim().charAt(0).toUpperCase();
 
-  const plan = getPlan(user.plan);
-  const used = user.generationsUsed ?? 0;
+  const usage = getUserUsage(user.id);
+  const plan = getPlan(usage?.plan);
+  const used = usage?.generationsUsed ?? 0;
   const left = Math.max(plan.limit - used, 0);
   const percent =
     plan.limit > 0 ? Math.min(100, Math.round((used / plan.limit) * 100)) : 0;

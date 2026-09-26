@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { getUserUsage } from "@/lib/db";
 import { getPlan } from "@/lib/plans";
 import { PhotoStudio } from "../../components/create/PhotoStudio";
 
@@ -14,9 +15,9 @@ export default async function CreatePage() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/login?next=/create");
 
-  const user = session.user;
-  const plan = getPlan(user.plan);
-  const used = user.generationsUsed ?? 0;
+  const usage = getUserUsage(session.user.id);
+  const plan = getPlan(usage?.plan);
+  const used = usage?.generationsUsed ?? 0;
   const left = Math.max(plan.limit - used, 0);
 
   return (

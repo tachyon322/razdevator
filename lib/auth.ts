@@ -12,6 +12,14 @@ export const auth = betterAuth({
     minPasswordLength: 8,
     autoSignIn: true,
   },
+  session: {
+    // Сессия читается из подписанной куки (без запроса к БД) до 5 минут.
+    // Лимиты при этом считаются свежим чтением из БД — см. getUserUsage().
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60,
+    },
+  },
   user: {
     additionalFields: {
       plan: {

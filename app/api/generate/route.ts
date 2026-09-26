@@ -9,7 +9,7 @@ import {
   isSupportedImage,
   putObject,
 } from "@/lib/storage";
-import { createGeneration } from "@/lib/db";
+import { createGeneration, getUserUsage } from "@/lib/db";
 import { generationWeight, getPlan } from "@/lib/plans";
 import { imageModel, videoModel } from "@/lib/nanogpt";
 import {
@@ -143,9 +143,10 @@ export async function POST(request: Request) {
     audio = String(form.get("audio") ?? "false") === "true";
   }
 
-  // Проверка лимита тарифа.
-  const plan = getPlan(session.user.plan);
-  const used = session.user.generationsUsed ?? 0;
+  // Проверка лимита тарифа (свежие данные, в обход cookie-кеша сессии).
+  const usage = getUserUsage(session.user.id);
+  const plan = getPlan(usage?.plan);
+  const used = usage?.generationsUsed ?? 0;
   const weight = generationWeight(kind, count);
   if (used + weight > plan.limit) {
     return NextResponse.json(
