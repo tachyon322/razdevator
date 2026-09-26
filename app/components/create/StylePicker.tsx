@@ -7,6 +7,7 @@ import {
   VIDEO_DURATIONS,
   VIDEO_RESOLUTIONS,
   hasSelection,
+  isCategoryIgnored,
   type Count,
   type Ratio,
   type Selections,
@@ -59,7 +60,9 @@ export function StylePicker({
   const selectedCount = STYLE_CATEGORIES.filter((c) =>
     hasSelection(selections[c.id]),
   ).length;
-  const requiredCategories = STYLE_CATEGORIES.filter((c) => !c.optional);
+  const requiredCategories = STYLE_CATEGORIES.filter(
+    (c) => !c.optional && !isCategoryIgnored(c.id, selections),
+  );
   const allSelected = requiredCategories.every((c) =>
     hasSelection(selections[c.id]),
   );
@@ -76,8 +79,7 @@ export function StylePicker({
         const chosen = selections[category.id];
         const isMultiple = Boolean(category.multiple);
         const chosenIds = Array.isArray(chosen) ? chosen : [];
-        const ignored =
-          category.id === "look" && selections.explicit === "nude";
+        const ignored = isCategoryIgnored(category.id, selections);
         return (
           <section key={category.id} className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-3">

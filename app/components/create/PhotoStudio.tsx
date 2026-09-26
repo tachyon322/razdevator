@@ -11,6 +11,7 @@ import {
   VIDEO_STAGES,
   emptySelections,
   hasSelection,
+  isCategoryIgnored,
   styleLabel,
   type Count,
   type Ratio,
@@ -190,7 +191,10 @@ export function PhotoStudio({
   };
 
   const allSelected = STYLE_CATEGORIES.every(
-    (c) => c.optional || hasSelection(selections[c.id]),
+    (c) =>
+      c.optional ||
+      isCategoryIgnored(c.id, selections) ||
+      hasSelection(selections[c.id]),
   );
 
   const selectOption = (categoryId: string, optionId: string) => {

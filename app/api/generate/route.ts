@@ -42,9 +42,15 @@ function parseSelections(
   if (!parsed || typeof parsed !== "object") return null;
   const source = parsed as Record<string, unknown>;
   const result: Record<string, string | string[]> = {};
+  // «Образ» не учитывается при полной наготе — тогда его не требуем.
+  const ignored = new Set<string>(source.explicit === "nude" ? ["look"] : []);
 
   for (const category of STYLE_CATEGORIES) {
     const value = source[category];
+    if (ignored.has(category)) {
+      if (typeof value === "string" && value) result[category] = value;
+      continue;
+    }
     if (typeof value !== "string" || !value) return null;
     result[category] = value;
   }

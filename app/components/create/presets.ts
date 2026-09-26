@@ -130,6 +130,17 @@ export function hasSelection(value: SelectionValue | undefined): boolean {
   return Boolean(value);
 }
 
+/**
+ * Категория не учитывается при текущем выборе: «Образ» игнорируется, когда
+ * выбрана полная нагота — тогда его не требуем и не добавляем в промпт.
+ */
+export function isCategoryIgnored(
+  categoryId: string,
+  selections: Selections,
+): boolean {
+  return categoryId === "look" && selections.explicit === "nude";
+}
+
 export function emptySelections(): Selections {
   return Object.fromEntries(
     STYLE_CATEGORIES.map((c) => [c.id, c.multiple ? [] : null]),
