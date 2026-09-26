@@ -20,22 +20,13 @@ import {
   type VideoResolution,
 } from "./presets";
 import type { GenerationDTO } from "@/lib/generation-dto";
+import { prepareImageUpload } from "@/lib/image-client";
 import { ArrowRightIcon, CameraIcon, SparkIcon } from "../icons";
 
-const MAX_SIZE = 10 * 1024 * 1024;
-const MIN_SIDE = 512;
-const TYPES = ["image/jpeg", "image/png", "image/webp"];
 const POLL_START_MS = 2500;
 const POLL_SLOW_MS = 5000;
 const POLL_IDLE_MS = 8000;
 const POLL_MAX_BACKOFF_MS = 10_000;
-
-async function imageSize(file: File): Promise<{ width: number; height: number }> {
-  const bitmap = await createImageBitmap(file);
-  const size = { width: bitmap.width, height: bitmap.height };
-  bitmap.close?.();
-  return size;
-}
 
 function stageLabelFor(mode: StudioMode, progress: number): string {
   const stages = mode === "video" ? VIDEO_STAGES : IMAGE_STAGES;
@@ -68,9 +59,11 @@ export function PhotoStudio({
   const [fileSize, setFileSize] = useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
   const previewRef = useRef<string | null>(null);
   const topRef = useRef<HTMLDivElement>(null);
   const didMountRef = useRef(false);
+  const prepareTokenRef = useRef(0);
 
   const [selections, setSelections] = useState<Selections>(emptySelections);
   const [ratio, setRatio] = useState<Ratio>("3:4");
@@ -203,34 +196,32 @@ export function PhotoStudio({
 
   const selectFile = async (next: File) => {
     setError(null);
-
-    if (!TYPES.includes(next.type)) {
-      setError("Поддерживаются только JPG, PNG или WebP.");
-      return;
-    }
-    if (next.size > MAX_SIZE) {
-      setError("Файл больше 10 МБ. Загрузите фото поменьше.");
-      return;
-    }
-
+    setPreparing(true);
+    const token = ++prepareTokenRef.current;
     try {
-      const { width, height } = await imageSize(next);
-      if (width < MIN_SIDE || height < MIN_SIDE) {
-        setError(`Минимальное разрешение — ${MIN_SIDE}×${MIN_SIDE}.`);
-        return;
-      }
-    } catch {
-      // не удалось прочитать размеры — пропускаем проверку
+      const prepared = await prepareImageUpload(next);
+      // Пока готовили фото, пользователь мог выбрать другое — игнорируем устаревший результат.
+      if (token !== prepareTokenRef.current) return;
+      setFile(prepared.file);
+      setFileName(prepared.file.name);
+      setFileSize(prepared.compressedSize);
+      setPreview(URL.createObjectURL(prepared.file));
+      setMaxReached((prev) => Math.max(prev, 2));
+    } catch (err) {
+      if (token !== prepareTokenRef.current) return;
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось подготовить фото. Попробуйте другой файл.",
+      );
+    } finally {
+      if (token === prepareTokenRef.current) setPreparing(false);
     }
-
-    setFile(next);
-    setFileName(next.name);
-    setFileSize(next.size);
-    setPreview(URL.createObjectURL(next));
-    setMaxReached((prev) => Math.max(prev, 2));
   };
 
   const clearFile = () => {
+    prepareTokenRef.current += 1;
+    setPreparing(false);
     setPreview(null);
     setFile(null);
     setFileName(null);
@@ -335,6 +326,8 @@ export function PhotoStudio({
   };
 
   const reset = () => {
+    prepareTokenRef.current += 1;
+    setPreparing(false);
     setPreview(null);
     setFile(null);
     setFileName(null);
@@ -451,13 +444,14 @@ export function PhotoStudio({
                 fileName={fileName}
                 fileSize={fileSize}
                 error={error}
+                preparing={preparing}
                 onSelect={selectFile}
                 onClear={clearFile}
               />
               <button
                 type="button"
                 onClick={() => goStep(2)}
-                disabled={!previewUrl}
+                disabled={!previewUrl || preparing}
                 className="inline-flex h-13 items-center justify-center gap-2 self-end rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-7 text-[15px] font-semibold text-white shadow-[0_14px_40px_-16px_rgba(225,29,72,0.9)] transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
               >
                 Далее

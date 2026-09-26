@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { TrashIcon, UploadIcon } from "../icons";
+import { RefreshIcon, TrashIcon, UploadIcon } from "../icons";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} Б`;
@@ -14,6 +14,7 @@ export function UploadDropzone({
   fileName,
   fileSize,
   error,
+  preparing,
   onSelect,
   onClear,
 }: {
@@ -21,13 +22,16 @@ export function UploadDropzone({
   fileName: string | null;
   fileSize: number | null;
   error: string | null;
+  preparing: boolean;
   onSelect: (file: File) => void;
   onClear: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
-  const pick = () => inputRef.current?.click();
+  const pick = () => {
+    if (!preparing) inputRef.current?.click();
+  };
 
   const handleFiles = (files: FileList | null) => {
     const file = files?.[0];
@@ -75,10 +79,15 @@ export function UploadDropzone({
             <button
               type="button"
               onClick={pick}
-              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-line-strong px-4 text-sm font-semibold text-ink transition-colors hover:bg-panel-hover"
+              disabled={preparing}
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-line-strong px-4 text-sm font-semibold text-ink transition-colors hover:bg-panel-hover disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
             >
-              <UploadIcon className="size-4" />
-              Заменить
+              {preparing ? (
+                <RefreshIcon className="size-4 animate-spin" />
+              ) : (
+                <UploadIcon className="size-4" />
+              )}
+              {preparing ? "Готовим…" : "Заменить"}
             </button>
           </div>
         </div>
@@ -86,7 +95,10 @@ export function UploadDropzone({
         <button
           type="button"
           onClick={pick}
+          disabled={preparing}
+          aria-busy={preparing}
           onDragOver={(e) => {
+            if (preparing) return;
             e.preventDefault();
             setDragging(true);
           }}
@@ -94,24 +106,33 @@ export function UploadDropzone({
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            handleFiles(e.dataTransfer.files);
+            if (!preparing) handleFiles(e.dataTransfer.files);
           }}
           className={[
             "flex w-full flex-col items-center gap-4 rounded-panel border-2 border-dashed px-6 py-14 text-center transition-colors",
-            dragging
+            dragging && !preparing
               ? "border-brand bg-brand-soft"
               : "border-line-strong bg-panel hover:border-brand/50 hover:bg-panel-hover",
+            preparing ? "cursor-wait" : "",
           ].join(" ")}
         >
           <span className="grid size-14 place-items-center rounded-full bg-brand-soft text-brand">
-            <UploadIcon className="size-6" />
+            {preparing ? (
+              <RefreshIcon className="size-6 animate-spin" />
+            ) : (
+              <UploadIcon className="size-6" />
+            )}
           </span>
           <span>
             <span className="block text-base font-semibold text-ink">
-              Перетащите фото или выберите файл
+              {preparing
+                ? "Готовим фото…"
+                : "Перетащите фото или выберите файл"}
             </span>
             <span className="mt-1 block text-sm text-muted">
-              JPG, PNG или WebP · до 10 МБ · от 512×512
+              {preparing
+                ? "Сжимаем и оптимизируем изображение"
+                : "JPG, PNG или WebP · до 5 МБ · от 512×512"}
             </span>
           </span>
         </button>

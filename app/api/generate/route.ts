@@ -97,7 +97,7 @@ export async function POST(request: Request) {
   }
   if (file.size > MAX_UPLOAD_BYTES) {
     return NextResponse.json(
-      { message: "Файл больше 10 МБ. Загрузите фото поменьше." },
+      { message: "Файл слишком большой. Загрузите фото поменьше." },
       { status: 400 },
     );
   }

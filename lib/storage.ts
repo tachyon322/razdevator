@@ -9,7 +9,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 
-/** Максимальный размер загружаемого файла (совпадает с ограничением в UI). */
+/** Серверный потолок размера запроса (страховка в глубину). */
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 const EXTENSIONS: Record<string, string> = {
