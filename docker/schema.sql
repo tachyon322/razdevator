@@ -20,4 +20,6 @@ create table if not exists "generation_asset" ("id" text not null primary key, "
 
 create index if not exists "generation_userId_createdAt_idx" on "generation" ("userId", "createdAt" desc);
 
+create index if not exists "generation_userId_favorite_createdAt_idx" on "generation" ("userId", "createdAt" desc) where "favorite" = 1;
+
 create index if not exists "generation_asset_generationId_idx" on "generation_asset" ("generationId");

@@ -8,7 +8,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
-import type { Database as DatabaseType } from "better-sqlite3";
+import type { Database as DatabaseType, Statement } from "better-sqlite3";
 
 export type GenerationKind = "image" | "video";
 export type GenerationStatus = "pending" | "processing" | "succeeded" | "failed";
@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS "generation_asset" (
 );
 
 CREATE INDEX IF NOT EXISTS "generation_userId_createdAt_idx" ON "generation" ("userId", "createdAt" DESC);
+CREATE INDEX IF NOT EXISTS "generation_userId_favorite_createdAt_idx" ON "generation" ("userId", "createdAt" DESC) WHERE "favorite" = 1;
 CREATE INDEX IF NOT EXISTS "generation_asset_generationId_idx" ON "generation_asset" ("generationId");
 `;
 
@@ -135,13 +136,39 @@ function databasePath(): string {
   return join(dataDir, "auth.db");
 }
 
-function getDb(): DatabaseType {
+export function getDb(): DatabaseType {
   if (db) return db;
   mkdirSync(dirname(databasePath()), { recursive: true });
   db = new BetterSqlite3(databasePath());
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  // Один процесс — WAL + NORMAL безопасны и заметно быстрее на записи.
+  db.pragma("synchronous = NORMAL");
+  db.pragma("busy_timeout = 5000");
+  db.pragma("cache_size = -16000"); // ~16 МБ
+  db.pragma("mmap_size = 67108864"); // 64 МБ
+  db.pragma("temp_store = MEMORY");
   return db;
+}
+
+const statements = new Map<string, Statement>();
+const MAX_STATEMENTS = 100;
+
+/**
+ * Готовит SQL и держит выражение в кеше. Ограничение размера важно для
+ * динамических запросов (список ассетов с разным числом `?`).
+ */
+function stmt(sql: string): Statement {
+  let prepared = statements.get(sql);
+  if (!prepared) {
+    if (statements.size >= MAX_STATEMENTS) {
+      const oldest = statements.keys().next().value;
+      if (oldest !== undefined) statements.delete(oldest);
+    }
+    prepared = getDb().prepare(sql);
+    statements.set(sql, prepared);
+  }
+  return prepared;
 }
 
 /** Создаёт таблицы при первом обращении (идемпотентно). */
@@ -223,38 +250,34 @@ export function createGeneration(input: CreateGenerationInput): Generation {
   ensureSchema();
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
-  getDb()
-    .prepare(
-      `INSERT INTO "generation"
+  stmt(
+    `INSERT INTO "generation"
         ("id","userId","kind","status","model","prompt","params","sourceKey","sourceContentType","providerRunId","costUsd","error","favorite","createdAt","updatedAt")
        VALUES (@id,@userId,@kind,'pending',@model,@prompt,@params,@sourceKey,@sourceContentType,NULL,NULL,NULL,0,@createdAt,@updatedAt)`,
-    )
-    .run({
-      id,
-      userId: input.userId,
-      kind: input.kind,
-      model: input.model,
-      prompt: input.prompt ?? "",
-      params: JSON.stringify(input.params ?? {}),
-      sourceKey: input.sourceKey ?? null,
-      sourceContentType: input.sourceContentType ?? null,
-      createdAt: now,
-      updatedAt: now,
-    });
+  ).run({
+    id,
+    userId: input.userId,
+    kind: input.kind,
+    model: input.model,
+    prompt: input.prompt ?? "",
+    params: JSON.stringify(input.params ?? {}),
+    sourceKey: input.sourceKey ?? null,
+    sourceContentType: input.sourceContentType ?? null,
+    createdAt: now,
+    updatedAt: now,
+  });
   return getGeneration(id) as Generation;
 }
 
 export function getGeneration(id: string): GenerationWithAssets | null {
   ensureSchema();
-  const row = getDb()
-    .prepare(`SELECT * FROM "generation" WHERE "id" = ?`)
-    .get(id) as GenerationRow | undefined;
+  const row = stmt(`SELECT * FROM "generation" WHERE "id" = ?`).get(id) as
+    | GenerationRow
+    | undefined;
   if (!row) return null;
-  const assets = getDb()
-    .prepare(
-      `SELECT * FROM "generation_asset" WHERE "generationId" = ? ORDER BY "position" ASC, "createdAt" ASC`,
-    )
-    .all(id) as AssetRow[];
+  const assets = stmt(
+    `SELECT * FROM "generation_asset" WHERE "generationId" = ? ORDER BY "position" ASC, "createdAt" ASC`,
+  ).all(id) as AssetRow[];
   return { ...mapGeneration(row), assets: assets.map(mapAsset) };
 }
 
@@ -280,21 +303,17 @@ export function listGenerations(
   }
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 200);
 
-  const rows = getDb()
-    .prepare(
-      `SELECT * FROM "generation" WHERE ${where.join(" AND ")} ORDER BY "createdAt" DESC LIMIT ${limit}`,
-    )
-    .all(params) as GenerationRow[];
+  const rows = stmt(
+    `SELECT * FROM "generation" WHERE ${where.join(" AND ")} ORDER BY "createdAt" DESC LIMIT @limit`,
+  ).all({ ...params, limit }) as GenerationRow[];
 
   if (rows.length === 0) return [];
 
   const ids = rows.map((row) => row.id);
   const placeholders = ids.map(() => "?").join(",");
-  const assetRows = getDb()
-    .prepare(
-      `SELECT * FROM "generation_asset" WHERE "generationId" IN (${placeholders}) ORDER BY "position" ASC, "createdAt" ASC`,
-    )
-    .all(...ids) as AssetRow[];
+  const assetRows = stmt(
+    `SELECT * FROM "generation_asset" WHERE "generationId" IN (${placeholders}) ORDER BY "position" ASC, "createdAt" ASC`,
+  ).all(...ids) as AssetRow[];
 
   const byGeneration = new Map<string, GenerationAsset[]>();
   for (const asset of assetRows) {
@@ -347,9 +366,9 @@ export function updateGeneration(
     sets.push(`"error" = @error`);
     params.error = patch.error;
   }
-  getDb()
-    .prepare(`UPDATE "generation" SET ${sets.join(", ")} WHERE "id" = @id`)
-    .run(params);
+  stmt(`UPDATE "generation" SET ${sets.join(", ")} WHERE "id" = @id`).run(
+    params,
+  );
 }
 
 export interface AddAssetInput {
@@ -366,37 +385,33 @@ export interface AddAssetInput {
 export function addAsset(input: AddAssetInput): GenerationAsset {
   ensureSchema();
   const id = crypto.randomUUID();
-  getDb()
-    .prepare(
-      `INSERT INTO "generation_asset"
+  stmt(
+    `INSERT INTO "generation_asset"
         ("id","generationId","kind","s3Key","contentType","width","height","durationSec","position","createdAt")
        VALUES (@id,@generationId,@kind,@s3Key,@contentType,@width,@height,@durationSec,@position,@createdAt)`,
-    )
-    .run({
-      id,
-      generationId: input.generationId,
-      kind: input.kind,
-      s3Key: input.s3Key,
-      contentType: input.contentType,
-      width: input.width ?? null,
-      height: input.height ?? null,
-      durationSec: input.durationSec ?? null,
-      position: input.position ?? 0,
-      createdAt: new Date().toISOString(),
-    });
-  const row = getDb()
-    .prepare(`SELECT * FROM "generation_asset" WHERE "id" = ?`)
-    .get(id) as AssetRow;
+  ).run({
+    id,
+    generationId: input.generationId,
+    kind: input.kind,
+    s3Key: input.s3Key,
+    contentType: input.contentType,
+    width: input.width ?? null,
+    height: input.height ?? null,
+    durationSec: input.durationSec ?? null,
+    position: input.position ?? 0,
+    createdAt: new Date().toISOString(),
+  });
+  const row = stmt(`SELECT * FROM "generation_asset" WHERE "id" = ?`).get(
+    id,
+  ) as AssetRow;
   return mapAsset(row);
 }
 
 export function nextAssetPosition(generationId: string): number {
   ensureSchema();
-  const row = getDb()
-    .prepare(
-      `SELECT COUNT(*) AS "count" FROM "generation_asset" WHERE "generationId" = ?`,
-    )
-    .get(generationId) as { count: number };
+  const row = stmt(
+    `SELECT COUNT(*) AS "count" FROM "generation_asset" WHERE "generationId" = ?`,
+  ).get(generationId) as { count: number };
   return row.count;
 }
 
@@ -404,35 +419,45 @@ export function nextAssetPosition(generationId: string): number {
 export function deleteGeneration(id: string): string[] {
   ensureSchema();
   const keys: string[] = [];
-  const generation = getDb()
-    .prepare(`SELECT "sourceKey" FROM "generation" WHERE "id" = ?`)
-    .get(id) as { sourceKey: string | null } | undefined;
+  const generation = stmt(
+    `SELECT "sourceKey" FROM "generation" WHERE "id" = ?`,
+  ).get(id) as { sourceKey: string | null } | undefined;
   if (generation?.sourceKey) keys.push(generation.sourceKey);
 
-  const assets = getDb()
-    .prepare(`SELECT "s3Key" FROM "generation_asset" WHERE "generationId" = ?`)
-    .all(id) as { s3Key: string }[];
+  const assets = stmt(
+    `SELECT "s3Key" FROM "generation_asset" WHERE "generationId" = ?`,
+  ).all(id) as { s3Key: string }[];
   for (const asset of assets) keys.push(asset.s3Key);
 
-  getDb().prepare(`DELETE FROM "generation" WHERE "id" = ?`).run(id);
+  stmt(`DELETE FROM "generation" WHERE "id" = ?`).run(id);
   return keys;
 }
 
 export function setFavorite(id: string, favorite: boolean): void {
   ensureSchema();
-  getDb()
-    .prepare(
-      `UPDATE "generation" SET "favorite" = ?, "updatedAt" = ? WHERE "id" = ?`,
-    )
-    .run(favorite ? 1 : 0, new Date().toISOString(), id);
+  stmt(
+    `UPDATE "generation" SET "favorite" = ?, "updatedAt" = ? WHERE "id" = ?`,
+  ).run(favorite ? 1 : 0, new Date().toISOString(), id);
 }
 
 export function incrementGenerationsUsed(userId: string, delta: number): void {
   if (delta <= 0) return;
   ensureSchema();
-  getDb()
-    .prepare(
-      `UPDATE "user" SET "generationsUsed" = COALESCE("generationsUsed", 0) + ? WHERE "id" = ?`,
-    )
-    .run(delta, userId);
+  stmt(
+    `UPDATE "user" SET "generationsUsed" = COALESCE("generationsUsed", 0) + ? WHERE "id" = ?`,
+  ).run(delta, userId);
+}
+
+export interface UserUsage {
+  plan: string | null;
+  generationsUsed: number | null;
+}
+
+/** Свежие тариф и счётчик генераций (в обход cookie-кеша сессии). */
+export function getUserUsage(userId: string): UserUsage | null {
+  ensureSchema();
+  const row = stmt(
+    `SELECT "plan", "generationsUsed" FROM "user" WHERE "id" = ?`,
+  ).get(userId) as UserUsage | undefined;
+  return row ?? null;
 }

@@ -1,12 +1,10 @@
-import { mkdirSync } from "node:fs";
-import Database from "better-sqlite3";
 import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
-
-mkdirSync("./data", { recursive: true });
+import { getDb } from "./db";
 
 export const auth = betterAuth({
-  database: new Database("./data/auth.db"),
+  // Одно соединение с SQLite на процесс (общее с lib/db.ts).
+  database: getDb(),
   baseURL: process.env.BETTER_AUTH_URL,
   secret: process.env.BETTER_AUTH_SECRET,
   emailAndPassword: {
