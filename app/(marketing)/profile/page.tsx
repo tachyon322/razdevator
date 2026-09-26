@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { formatPrice, getPlan } from "@/lib/plans";
 import { SignOutButton } from "../../components/SignOutButton";
-import { ArrowRightIcon, BoltIcon, CheckIcon } from "../../components/icons";
+import { ArrowRightIcon, BoltIcon, CheckIcon, ImageIcon } from "../../components/icons";
 
 export const metadata = {
   title: "Профиль — Раздеватор",
@@ -135,6 +135,13 @@ export default async function ProfilePage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <Link
+              href="/gallery"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-6 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5"
+            >
+              <ImageIcon className="size-4" />
+              Моя галерея
+            </Link>
             <SignOutButton />
             <button
               type="button"

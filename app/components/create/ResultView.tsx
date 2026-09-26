@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { STAGES } from "./presets";
 import {
   DownloadIcon,
   HeartIcon,
@@ -9,6 +8,13 @@ import {
   SparkIcon,
   WandIcon,
 } from "../icons";
+
+export interface ResultAsset {
+  id: string;
+  kind: "image" | "video";
+  url: string;
+  durationSec?: number | null;
+}
 
 function BeforeAfter({ before, after }: { before: string; after: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -78,28 +84,34 @@ function BeforeAfter({ before, after }: { before: string; after: string }) {
 
 export function ResultView({
   status,
+  kind,
   progress,
-  stage,
+  stageLabel,
   beforeUrl,
-  results,
+  assets,
   favorite,
+  error,
   onToggleFavorite,
   onAgain,
   onReset,
   onDownload,
 }: {
-  status: "generating" | "done";
+  status: "pending" | "processing" | "succeeded" | "failed";
+  kind: "image" | "video";
   progress: number;
-  stage: number;
+  stageLabel: string;
   beforeUrl: string;
-  results: string[];
+  assets: ResultAsset[];
   favorite: boolean;
+  error: string | null;
   onToggleFavorite: () => void;
   onAgain: () => void;
   onReset: () => void;
-  onDownload: (url: string) => void;
+  onDownload: (url: string, filename: string) => void;
 }) {
-  if (status === "generating") {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  if (status === "pending" || status === "processing") {
     return (
       <div className="flex flex-col gap-5 rounded-card border border-line bg-panel p-6">
         <div className="flex items-center gap-3">
@@ -107,14 +119,18 @@ export function ResultView({
             <WandIcon className="size-5" />
           </span>
           <div>
-            <p className="font-semibold text-ink">{STAGES[stage]}</p>
-            <p className="text-sm text-muted">Обычно занимает около 30 секунд</p>
+            <p className="font-semibold text-ink">{stageLabel}</p>
+            <p className="text-sm text-muted">
+              {kind === "video"
+                ? "Видео обычно рендерится 2–4 минуты. Страницу можно не закрывать."
+                : "Обычно занимает около 30 секунд"}
+            </p>
           </div>
         </div>
 
         <div className="h-2 w-full overflow-hidden rounded-full bg-panel-hover">
           <div
-            className="h-full rounded-full bg-[linear-gradient(90deg,#e11d48,#9f1239)] transition-[width] duration-200"
+            className="h-full rounded-full bg-[linear-gradient(90deg,#e11d48,#9f1239)] transition-[width] duration-500"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -135,31 +151,88 @@ export function ResultView({
     );
   }
 
-  const main = results[0];
+  if (status === "failed") {
+    return (
+      <div className="flex flex-col gap-5 rounded-card border border-brand/40 bg-panel p-6">
+        <h2 className="font-display text-xl font-bold tracking-tight text-ink">
+          Не получилось
+        </h2>
+        <p className="text-sm text-muted">
+          {error ?? "Не удалось сгенерировать результат. Попробуйте ещё раз."}
+        </p>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <button
+            type="button"
+            onClick={onAgain}
+            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-6 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5"
+          >
+            <RefreshIcon className="size-4" />
+            Попробовать снова
+          </button>
+          <button
+            type="button"
+            onClick={onReset}
+            className="inline-flex h-12 flex-1 items-center justify-center rounded-full border border-line-strong text-sm font-semibold text-ink transition-colors hover:bg-panel-hover"
+          >
+            Начать заново
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const isVideo = kind === "video";
+  const main = assets[Math.min(activeIndex, assets.length - 1)];
+
+  if (!main) {
+    return (
+      <div className="rounded-card border border-line bg-panel p-8 text-center text-sm text-muted">
+        Результат пуст.{" "}
+        <button
+          type="button"
+          onClick={onReset}
+          className="font-medium text-ink underline underline-offset-2"
+        >
+          Начать заново
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-5">
-      <BeforeAfter before={beforeUrl} after={main} />
+      {isVideo ? (
+        <video
+          key={main.url}
+          src={main.url}
+          poster={beforeUrl}
+          controls
+          playsInline
+          className="aspect-[3/4] w-full rounded-card border border-line bg-black object-contain"
+        />
+      ) : (
+        <BeforeAfter before={beforeUrl} after={main.url} />
+      )}
 
-      {results.length > 1 && (
+      {!isVideo && assets.length > 1 && (
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-          {results.map((url, i) => (
+          {assets.map((asset, i) => (
             <button
-              key={url + i}
+              key={asset.id}
               type="button"
-              onClick={() => onDownload(url)}
-              title="Скачать вариант"
-              className="group relative aspect-square overflow-hidden rounded-tile border border-line"
+              onClick={() => setActiveIndex(i)}
+              title={`Вариант ${i + 1}`}
+              className={[
+                "group relative aspect-square overflow-hidden rounded-tile border transition-colors",
+                i === activeIndex ? "border-brand" : "border-line",
+              ].join(" ")}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={url}
+                src={asset.url}
                 alt={`Вариант ${i + 1}`}
                 className="h-full w-full object-cover transition-transform group-hover:scale-105"
               />
-              <span className="absolute inset-0 grid place-items-center bg-canvas/50 opacity-0 transition-opacity group-hover:opacity-100">
-                <DownloadIcon className="size-5 text-white" />
-              </span>
             </button>
           ))}
         </div>
@@ -168,11 +241,16 @@ export function ResultView({
       <div className="flex flex-col gap-3">
         <button
           type="button"
-          onClick={() => onDownload(main)}
+          onClick={() =>
+            onDownload(
+              main.url,
+              `razdevator-${Date.now()}.${isVideo ? "mp4" : "jpg"}`,
+            )
+          }
           className="inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-6 text-[15px] font-semibold text-white shadow-[0_14px_40px_-16px_rgba(225,29,72,0.9)] transition-transform hover:-translate-y-0.5"
         >
           <DownloadIcon className="size-5" />
-          Скачать
+          {isVideo ? "Скачать видео" : "Скачать"}
         </button>
 
         <div className="flex gap-3">
@@ -210,10 +288,6 @@ export function ResultView({
         >
           Создать ещё
         </button>
-
-        <p className="rounded-tile border border-line bg-elevated px-4 py-3 text-center text-xs text-faint">
-          Демо-режим: генерация пока не подключена, показан пример результата.
-        </p>
       </div>
     </div>
   );

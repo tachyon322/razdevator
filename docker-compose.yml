@@ -5,8 +5,42 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${APP_PORT:-3200}:3000"
+    environment:
+      # Внутри docker-сети S3 доступен по имени сервиса (наружу порт не смотрит).
+      S3_ENDPOINT: http://seaweedfs:8333
     env_file:
       - path: .env
         required: false
     volumes:
       - ./data:/app/data
+    depends_on:
+      seaweedfs:
+        condition: service_started
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    # Только S3 API, только с localhost хоста. Master/filer/volume наружу не открываются.
+    ports:
+      - "127.0.0.1:${S3_PORT:-8333}:8333"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat > /tmp/s3.json <<EOF
+        {"identities":[{"name":"app","credentials":[{"accessKey":"$$S3_ACCESS_KEY","secretKey":"$$S3_SECRET_KEY"}],"actions":["Admin","Read","Write","List","Tagging"]}]}
+        EOF
+        exec weed server -dir=/data -s3 -s3.port=8333 -s3.config=/tmp/s3.json -ip.bind=0.0.0.0
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+    volumes:
+      - seaweedfs_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9333/cluster/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  seaweedfs_data:

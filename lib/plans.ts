@@ -79,3 +79,14 @@ export function getPlan(id?: string | null): Plan {
 export function formatPrice(price: number): string {
   return `${price.toLocaleString("ru-RU")} ₽`;
 }
+
+/** Сколько единиц лимита списывает одна генерация. */
+export const GENERATION_WEIGHTS = { image: 1, video: 3 } as const;
+
+export function generationWeight(
+  kind: "image" | "video",
+  count = 1,
+): number {
+  if (kind === "video") return GENERATION_WEIGHTS.video;
+  return GENERATION_WEIGHTS.image * Math.max(1, count);
+}

@@ -4,13 +4,19 @@ import {
   COUNTS,
   RATIOS,
   STYLE_CATEGORIES,
+  VIDEO_DURATIONS,
+  VIDEO_RESOLUTIONS,
+  hasSelection,
   type Count,
   type Ratio,
   type Selections,
+  type StudioMode,
+  type VideoResolution,
 } from "./presets";
 import { BoltIcon, CheckIcon } from "../icons";
 
 export function StylePicker({
+  mode,
   selections,
   onSelect,
   ratio,
@@ -19,10 +25,17 @@ export function StylePicker({
   onCount,
   keepFace,
   onKeepFace,
+  videoResolution,
+  onVideoResolution,
+  duration,
+  onDuration,
+  audio,
+  onAudio,
   left,
   limit,
   onGenerate,
 }: {
+  mode: StudioMode;
   selections: Selections;
   onSelect: (categoryId: string, optionId: string) => void;
   ratio: Ratio;
@@ -31,24 +44,38 @@ export function StylePicker({
   onCount: (c: Count) => void;
   keepFace: boolean;
   onKeepFace: (v: boolean) => void;
+  videoResolution: VideoResolution;
+  onVideoResolution: (r: VideoResolution) => void;
+  duration: number;
+  onDuration: (d: number) => void;
+  audio: boolean;
+  onAudio: (v: boolean) => void;
   left: number;
   limit: number;
   onGenerate: () => void;
 }) {
-  const selectedCount = STYLE_CATEGORIES.filter(
-    (c) => selections[c.id],
+  const selectedCount = STYLE_CATEGORIES.filter((c) =>
+    hasSelection(selections[c.id]),
   ).length;
-  const allSelected = selectedCount === STYLE_CATEGORIES.length;
-  const outOfLimit = left <= 0;
-  const missing = STYLE_CATEGORIES.filter((c) => !selections[c.id]).map(
-    (c) => c.label.toLowerCase(),
+  const requiredCategories = STYLE_CATEGORIES.filter((c) => !c.optional);
+  const allSelected = requiredCategories.every((c) =>
+    hasSelection(selections[c.id]),
   );
+  const required = mode === "video" ? 3 : count;
+  const outOfLimit = left < required;
+  const missing = requiredCategories
+    .filter((c) => !hasSelection(selections[c.id]))
+    .map((c) => c.label.toLowerCase());
 
   return (
     <div className="flex flex-col gap-7">
       {/* Параметры — каждый независимый */}
       {STYLE_CATEGORIES.map((category) => {
         const chosen = selections[category.id];
+        const isMultiple = Boolean(category.multiple);
+        const chosenIds = Array.isArray(chosen) ? chosen : [];
+        const ignored =
+          category.id === "look" && selections.explicit === "nude";
         return (
           <section key={category.id} className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-3">
@@ -56,13 +83,21 @@ export function StylePicker({
                 {category.label}
               </h3>
               <span className="text-xs text-faint">
-                {chosen ? "выбрано" : "не выбрано"}
+                {ignored
+                  ? "не учитывается при «Без одежды»"
+                  : category.optional
+                    ? "необязательно"
+                    : hasSelection(chosen)
+                      ? "выбрано"
+                      : "не выбрано"}
               </span>
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {category.options.map((option) => {
-                const selected = option.id === chosen;
+                const selected = isMultiple
+                  ? chosenIds.includes(option.id)
+                  : option.id === chosen;
                 return (
                   <button
                     key={option.id}
@@ -74,6 +109,7 @@ export function StylePicker({
                       selected
                         ? "border-brand bg-brand-soft text-ink"
                         : "border-line bg-panel text-muted hover:bg-panel-hover hover:text-ink",
+                      ignored ? "opacity-50" : "",
                     ].join(" ")}
                   >
                     {option.label}
@@ -111,52 +147,132 @@ export function StylePicker({
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
-          <span className="text-sm font-medium text-muted">Количество</span>
-          <div className="flex gap-2">
-            {COUNTS.map((c) => (
+        {mode === "image" ? (
+          <>
+            <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-sm font-medium text-muted">Количество</span>
+              <div className="flex gap-2">
+                {COUNTS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => onCount(c)}
+                    className={[
+                      "grid h-10 min-w-10 place-items-center rounded-full px-3 text-sm font-semibold transition-colors",
+                      c === count
+                        ? "bg-brand text-white"
+                        : "border border-line-strong text-muted hover:bg-panel-hover hover:text-ink",
+                    ].join(" ")}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 p-5">
+              <div>
+                <span className="text-sm font-medium text-ink">
+                  Сохранить лицо
+                </span>
+                <p className="mt-0.5 text-xs text-faint">
+                  Максимально сохранить черты с исходного фото
+                </p>
+              </div>
               <button
-                key={c}
                 type="button"
-                onClick={() => onCount(c)}
+                role="switch"
+                aria-checked={keepFace}
+                onClick={() => onKeepFace(!keepFace)}
                 className={[
-                  "grid h-10 min-w-10 place-items-center rounded-full px-3 text-sm font-semibold transition-colors",
-                  c === count
-                    ? "bg-brand text-white"
-                    : "border border-line-strong text-muted hover:bg-panel-hover hover:text-ink",
+                  "relative h-7 w-12 shrink-0 rounded-full transition-colors",
+                  keepFace ? "bg-brand" : "bg-panel-hover",
                 ].join(" ")}
               >
-                {c}
+                <span
+                  className={[
+                    "absolute top-1 size-5 rounded-full bg-white transition-all",
+                    keepFace ? "left-6" : "left-1",
+                  ].join(" ")}
+                />
               </button>
-            ))}
-          </div>
-        </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-sm font-medium text-muted">
+                Разрешение
+              </span>
+              <div className="flex gap-2">
+                {VIDEO_RESOLUTIONS.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => onVideoResolution(r.id)}
+                    className={[
+                      "h-10 min-w-14 rounded-full px-3 text-sm font-semibold transition-colors",
+                      r.id === videoResolution
+                        ? "bg-brand text-white"
+                        : "border border-line-strong text-muted hover:bg-panel-hover hover:text-ink",
+                    ].join(" ")}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        <div className="flex items-center justify-between gap-3 p-5">
-          <div>
-            <span className="text-sm font-medium text-ink">Сохранить лицо</span>
-            <p className="mt-0.5 text-xs text-faint">
-              Максимально сохранить черты с исходного фото
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={keepFace}
-            onClick={() => onKeepFace(!keepFace)}
-            className={[
-              "relative h-7 w-12 shrink-0 rounded-full transition-colors",
-              keepFace ? "bg-brand" : "bg-panel-hover",
-            ].join(" ")}
-          >
-            <span
-              className={[
-                "absolute top-1 size-5 rounded-full bg-white transition-all",
-                keepFace ? "left-6" : "left-1",
-              ].join(" ")}
-            />
-          </button>
-        </div>
+            <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-sm font-medium text-muted">
+                Длительность
+              </span>
+              <div className="flex gap-2">
+                {VIDEO_DURATIONS.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => onDuration(d)}
+                    className={[
+                      "grid h-10 min-w-14 place-items-center rounded-full px-3 text-sm font-semibold transition-colors",
+                      d === duration
+                        ? "bg-brand text-white"
+                        : "border border-line-strong text-muted hover:bg-panel-hover hover:text-ink",
+                    ].join(" ")}
+                  >
+                    {d}с
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 p-5">
+              <div>
+                <span className="text-sm font-medium text-ink">Звук</span>
+                <p className="mt-0.5 text-xs text-faint">
+                  Добавить звуковую дорожку к видео
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={audio}
+                onClick={() => onAudio(!audio)}
+                className={[
+                  "relative h-7 w-12 shrink-0 rounded-full transition-colors",
+                  audio ? "bg-brand" : "bg-panel-hover",
+                ].join(" ")}
+              >
+                <span
+                  className={[
+                    "absolute top-1 size-5 rounded-full bg-white transition-all",
+                    audio ? "left-6" : "left-1",
+                  ].join(" ")}
+                />
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Лимит + генерация */}
@@ -175,6 +291,12 @@ export function StylePicker({
           </span>
         </div>
 
+        {mode === "video" && (
+          <p className="rounded-tile border border-line bg-elevated px-4 py-3 text-xs text-muted">
+            Видео списывает 3 генерации лимита.
+          </p>
+        )}
+
         {outOfLimit && (
           <p className="rounded-tile border border-brand/40 bg-brand-soft px-4 py-3 text-sm text-ink">
             Лимит исчерпан. Выберите тариф, чтобы продолжить.
@@ -188,7 +310,7 @@ export function StylePicker({
           className="inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-6 text-[15px] font-semibold text-white shadow-[0_14px_40px_-16px_rgba(225,29,72,0.9)] transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
         >
           <BoltIcon className="size-5" />
-          Сгенерировать
+          {mode === "video" ? "Сгенерировать видео" : "Сгенерировать"}
         </button>
 
         {!allSelected && !outOfLimit && (

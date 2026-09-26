@@ -11,3 +11,13 @@ create index if not exists "session_userId_idx" on "session" ("userId");
 create index if not exists "account_userId_idx" on "account" ("userId");
 
 create index if not exists "verification_identifier_idx" on "verification" ("identifier");
+
+-- --- Генерации (NanoGPT -> S3) ---
+
+create table if not exists "generation" ("id" text not null primary key, "userId" text not null references "user" ("id") on delete cascade, "kind" text not null check ("kind" in ('image','video')), "status" text not null check ("status" in ('pending','processing','succeeded','failed')), "model" text not null, "prompt" text not null, "params" text not null, "sourceKey" text, "sourceContentType" text, "providerRunId" text, "costUsd" real, "error" text, "favorite" integer not null default 0, "createdAt" text not null, "updatedAt" text not null);
+
+create table if not exists "generation_asset" ("id" text not null primary key, "generationId" text not null references "generation" ("id") on delete cascade, "kind" text not null check ("kind" in ('image','video')), "s3Key" text not null, "contentType" text not null, "width" integer, "height" integer, "durationSec" real, "position" integer not null default 0, "createdAt" text not null);
+
+create index if not exists "generation_userId_createdAt_idx" on "generation" ("userId", "createdAt" desc);
+
+create index if not exists "generation_asset_generationId_idx" on "generation_asset" ("generationId");

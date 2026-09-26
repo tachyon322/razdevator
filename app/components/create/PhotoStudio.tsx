@@ -4,22 +4,27 @@ import { useEffect, useRef, useState } from "react";
 import { Stepper } from "./Stepper";
 import { UploadDropzone } from "./UploadDropzone";
 import { StylePicker } from "./StylePicker";
-import { ResultView } from "./ResultView";
+import { ResultView, type ResultAsset } from "./ResultView";
 import {
-  DEMO_RESULTS,
+  IMAGE_STAGES,
   STYLE_CATEGORIES,
-  demoResult,
+  VIDEO_STAGES,
   emptySelections,
+  hasSelection,
   styleLabel,
   type Count,
   type Ratio,
   type Selections,
+  type StudioMode,
+  type VideoResolution,
 } from "./presets";
-import { ArrowRightIcon, CameraIcon } from "../icons";
+import type { GenerationDTO } from "@/lib/generation-dto";
+import { ArrowRightIcon, CameraIcon, SparkIcon } from "../icons";
 
 const MAX_SIZE = 10 * 1024 * 1024;
 const MIN_SIDE = 512;
 const TYPES = ["image/jpeg", "image/png", "image/webp"];
+const POLL_MS = 2500;
 
 async function imageSize(file: File): Promise<{ width: number; height: number }> {
   const bitmap = await createImageBitmap(file);
@@ -28,18 +33,33 @@ async function imageSize(file: File): Promise<{ width: number; height: number }>
   return size;
 }
 
+function stageLabelFor(mode: StudioMode, progress: number): string {
+  const stages = mode === "video" ? VIDEO_STAGES : IMAGE_STAGES;
+  if (mode === "video") {
+    if (progress < 15) return stages[0];
+    if (progress < 30) return stages[1];
+    if (progress < 85) return stages[2];
+    return stages[3];
+  }
+  if (progress < 33) return stages[0];
+  if (progress < 70) return stages[1];
+  return stages[2];
+}
+
 export function PhotoStudio({
   planName,
-  left,
+  left: initialLeft,
   limit,
 }: {
   planName: string;
   left: number;
   limit: number;
 }) {
+  const [mode, setMode] = useState<StudioMode>("image");
   const [step, setStep] = useState(1);
   const [maxReached, setMaxReached] = useState(1);
 
+  const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileSize, setFileSize] = useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -51,13 +71,17 @@ export function PhotoStudio({
   const [count, setCount] = useState<Count>(2);
   const [keepFace, setKeepFace] = useState(true);
 
-  const [phase, setPhase] = useState<"generating" | "done">("generating");
-  const [progress, setProgress] = useState(0);
-  const [stage, setStage] = useState(0);
-  const [results, setResults] = useState<string[]>([]);
-  const [favorite, setFavorite] = useState(false);
+  const [videoResolution, setVideoResolution] =
+    useState<VideoResolution>("720p");
+  const [duration, setDuration] = useState(5);
+  const [audio, setAudio] = useState(false);
 
-  const intervalRef = useRef<number | null>(null);
+  const [left, setLeft] = useState(initialLeft);
+  const [busy, setBusy] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [job, setJob] = useState<GenerationDTO | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [favorite, setFavorite] = useState(false);
 
   const setPreview = (url: string | null) => {
     if (previewRef.current) URL.revokeObjectURL(previewRef.current);
@@ -68,24 +92,65 @@ export function PhotoStudio({
   useEffect(() => {
     return () => {
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
-      if (intervalRef.current) window.clearInterval(intervalRef.current);
     };
   }, []);
 
-  const selectFile = async (file: File) => {
+  const jobId = job?.id ?? null;
+  const jobStatus = job?.status ?? null;
+
+  // Тикер прогресса, пока задача в работе.
+  useEffect(() => {
+    if (!jobId || jobStatus === "succeeded" || jobStatus === "failed") return;
+    const id = window.setInterval(() => setElapsed((value) => value + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [jobId, jobStatus]);
+
+  // Поллинг статуса генерации.
+  useEffect(() => {
+    if (!jobId || jobStatus === "succeeded" || jobStatus === "failed") return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/generations/${jobId}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as GenerationDTO;
+        if (cancelled) return;
+        setJob(data);
+        setFavorite(data.favorite);
+        if (data.status === "succeeded") {
+          const weight =
+            data.kind === "video"
+              ? 3
+              : Number(data.params.count ?? 1) || 1;
+          setLeft((value) => Math.max(0, value - weight));
+        }
+      } catch {
+        // сеть мигнула — следующий тик повторит
+      }
+    };
+    const id = window.setInterval(tick, POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [jobId, jobStatus]);
+
+  const selectFile = async (next: File) => {
     setError(null);
 
-    if (!TYPES.includes(file.type)) {
+    if (!TYPES.includes(next.type)) {
       setError("Поддерживаются только JPG, PNG или WebP.");
       return;
     }
-    if (file.size > MAX_SIZE) {
+    if (next.size > MAX_SIZE) {
       setError("Файл больше 10 МБ. Загрузите фото поменьше.");
       return;
     }
 
     try {
-      const { width, height } = await imageSize(file);
+      const { width, height } = await imageSize(next);
       if (width < MIN_SIDE || height < MIN_SIDE) {
         setError(`Минимальное разрешение — ${MIN_SIDE}×${MIN_SIDE}.`);
         return;
@@ -94,14 +159,16 @@ export function PhotoStudio({
       // не удалось прочитать размеры — пропускаем проверку
     }
 
-    setFileName(file.name);
-    setFileSize(file.size);
-    setPreview(URL.createObjectURL(file));
+    setFile(next);
+    setFileName(next.name);
+    setFileSize(next.size);
+    setPreview(URL.createObjectURL(next));
     setMaxReached((prev) => Math.max(prev, 2));
   };
 
   const clearFile = () => {
     setPreview(null);
+    setFile(null);
     setFileName(null);
     setFileSize(null);
     setError(null);
@@ -109,80 +176,134 @@ export function PhotoStudio({
     setStep(1);
   };
 
-  const allSelected = STYLE_CATEGORIES.every((c) => selections[c.id]);
+  const allSelected = STYLE_CATEGORIES.every(
+    (c) => c.optional || hasSelection(selections[c.id]),
+  );
 
-  const startGeneration = () => {
-    if (!previewUrl || !allSelected) return;
-    if (intervalRef.current) window.clearInterval(intervalRef.current);
-
-    const seed = STYLE_CATEGORIES.map((c) => selections[c.id]).join("-");
-
-    setStep(3);
-    setMaxReached(3);
-    setPhase("generating");
-    setProgress(0);
-    setStage(0);
-    setResults([]);
-    setFavorite(false);
-
-    const variantCount = count;
-    let p = 0;
-
-    intervalRef.current = window.setInterval(() => {
-      p = Math.min(100, p + 5 + Math.random() * 7);
-      setProgress(Math.round(p));
-      setStage(p < 33 ? 0 : p < 70 ? 1 : 2);
-
-      if (p >= 100) {
-        if (intervalRef.current) window.clearInterval(intervalRef.current);
-        intervalRef.current = null;
-
-        const base = Math.max(0, DEMO_RESULTS.indexOf(demoResult(seed)));
-        setResults(
-          Array.from(
-            { length: variantCount },
-            (_, i) => DEMO_RESULTS[(base + i) % DEMO_RESULTS.length],
-          ),
-        );
-        setPhase("done");
+  const selectOption = (categoryId: string, optionId: string) => {
+    setSelections((prev) => {
+      const category = STYLE_CATEGORIES.find((c) => c.id === categoryId);
+      if (category?.multiple) {
+        const current = Array.isArray(prev[categoryId])
+          ? (prev[categoryId] as string[])
+          : [];
+        const next = current.includes(optionId)
+          ? current.filter((id) => id !== optionId)
+          : [...current, optionId];
+        return { ...prev, [categoryId]: next };
       }
-    }, 240);
+      return { ...prev, [categoryId]: optionId };
+    });
+  };
+
+  const switchMode = (next: StudioMode) => {
+    if (next === mode) return;
+    setMode(next);
+    setJob(null);
+    setFavorite(false);
+    setElapsed(0);
+    setStartError(null);
+    setStep(file ? 2 : 1);
+    setMaxReached(file ? 2 : 1);
+  };
+
+  const startGeneration = async () => {
+    if (!file || !allSelected || busy) return;
+    setBusy(true);
+    setStartError(null);
+
+    const form = new FormData();
+    form.set("file", file);
+    form.set("kind", mode);
+    form.set("selections", JSON.stringify(selections));
+    form.set("ratio", ratio);
+    if (mode === "image") {
+      form.set("count", String(count));
+      form.set("keepFace", String(keepFace));
+      form.set("resolution", "1k");
+    } else {
+      form.set("resolution", videoResolution);
+      form.set("duration", String(duration));
+      form.set("audio", String(audio));
+    }
+
+    try {
+      const res = await fetch("/api/generate", { method: "POST", body: form });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as {
+          message?: string;
+        } | null;
+        setStartError(data?.message ?? "Не удалось запустить генерацию.");
+        return;
+      }
+      const data = (await res.json()) as { id: string };
+      setJob({
+        id: data.id,
+        kind: mode,
+        status: "pending",
+        prompt: "",
+        params: {},
+        sourceUrl: null,
+        error: null,
+        favorite: false,
+        costUsd: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        assets: [],
+      });
+      setFavorite(false);
+      setElapsed(0);
+      setStep(3);
+      setMaxReached(3);
+    } catch {
+      setStartError("Сеть недоступна. Попробуйте ещё раз.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const goStep = (n: number) => {
     if (n > maxReached) return;
-    if (intervalRef.current) {
-      window.clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
     setStep(n);
   };
 
   const reset = () => {
-    if (intervalRef.current) {
-      window.clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
     setPreview(null);
+    setFile(null);
     setFileName(null);
     setFileSize(null);
     setSelections(emptySelections());
-    setResults([]);
+    setJob(null);
     setFavorite(false);
-    setProgress(0);
-    setStage(0);
+    setElapsed(0);
+    setStartError(null);
     setMaxReached(1);
     setStep(1);
   };
 
-  const download = async (url: string) => {
+  const toggleFavorite = async () => {
+    if (!job) return;
+    const next = !favorite;
+    setFavorite(next);
+    try {
+      await fetch(`/api/generations/${job.id}/favorite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ favorite: next }),
+      });
+    } catch {
+      setFavorite(!next);
+    }
+  };
+
+  const download = async (url: string, filename: string) => {
     try {
       const res = await fetch(url);
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objectUrl;
-      a.download = `razdevator-${Date.now()}.jpg`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -192,8 +313,56 @@ export function PhotoStudio({
     }
   };
 
+  const active = job && (job.status === "pending" || job.status === "processing");
+  const progress = active
+    ? mode === "video"
+      ? Math.min(93, Math.round(elapsed * 0.7))
+      : Math.min(93, Math.round(elapsed * 4))
+    : job?.status === "succeeded"
+      ? 100
+      : 0;
+
+  const resultAssets: ResultAsset[] = (job?.assets ?? []).map((asset) => ({
+    id: asset.id,
+    kind: asset.kind,
+    url: asset.url,
+    durationSec: asset.durationSec,
+  }));
+
   return (
     <div className="flex flex-col gap-8">
+      {/* Режим */}
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="inline-flex rounded-full border border-line bg-panel p-1">
+          {(
+            [
+              { id: "image", label: "Фото" },
+              { id: "video", label: "Видео" },
+            ] as { id: StudioMode; label: string }[]
+          ).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => switchMode(item.id)}
+              aria-pressed={mode === item.id}
+              className={[
+                "inline-flex h-10 items-center gap-2 rounded-full px-5 text-sm font-semibold transition-colors",
+                mode === item.id
+                  ? "bg-[linear-gradient(135deg,#e11d48,#9f1239)] text-white"
+                  : "text-muted hover:text-ink",
+              ].join(" ")}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-sm text-muted">
+          {mode === "image"
+            ? "Оживите одно фото: новый образ, локация и свет."
+            : "Превратите фото в короткое видео с движением камеры."}
+        </p>
+      </div>
+
       <Stepper step={step} maxReached={maxReached} onStep={goStep} />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-8">
@@ -205,7 +374,9 @@ export function PhotoStudio({
                   Загрузите фото
                 </h2>
                 <p className="mt-1 text-sm text-muted">
-                  Одно чёткое фото анфас. Оно остаётся приватным.
+                  {mode === "video"
+                    ? "Одно чёткое фото — именно оно станет основой видео."
+                    : "Одно чёткое фото анфас. Оно остаётся приватным."}
                 </p>
               </div>
               <UploadDropzone
@@ -232,27 +403,41 @@ export function PhotoStudio({
             <div className="flex flex-col gap-6">
               <div>
                 <h2 className="font-display text-xl font-bold tracking-tight text-ink">
-                  Выберите стиль
+                  {mode === "video" ? "Настройте видео" : "Выберите стиль"}
                 </h2>
                 <p className="mt-1 text-sm text-muted">
-                  Локация, образ, свет и ракурс — соберите свой кадр.
+                  {mode === "video"
+                    ? "Локация, образ, свет и ракурс — плюс параметры видео."
+                    : "Локация, образ, свет и ракурс — соберите свой кадр."}
                 </p>
               </div>
               <StylePicker
+                mode={mode}
                 selections={selections}
-                onSelect={(categoryId, optionId) =>
-                  setSelections((prev) => ({ ...prev, [categoryId]: optionId }))
-                }
+                onSelect={selectOption}
                 ratio={ratio}
                 onRatio={setRatio}
                 count={count}
                 onCount={setCount}
                 keepFace={keepFace}
                 onKeepFace={setKeepFace}
+                videoResolution={videoResolution}
+                onVideoResolution={setVideoResolution}
+                duration={duration}
+                onDuration={setDuration}
+                audio={audio}
+                onAudio={setAudio}
                 left={left}
                 limit={limit}
                 onGenerate={startGeneration}
               />
+
+              {startError && (
+                <p className="rounded-tile border border-brand/40 bg-brand-soft px-4 py-3 text-sm text-ink">
+                  {startError}
+                </p>
+              )}
+
               <button
                 type="button"
                 onClick={() => goStep(1)}
@@ -263,22 +448,24 @@ export function PhotoStudio({
             </div>
           )}
 
-          {step === 3 && previewUrl && (
+          {step === 3 && previewUrl && job && (
             <ResultView
-              status={phase}
+              status={job.status}
+              kind={job.kind}
               progress={progress}
-              stage={stage}
+              stageLabel={stageLabelFor(mode, progress)}
               beforeUrl={previewUrl}
-              results={results}
+              assets={resultAssets}
               favorite={favorite}
-              onToggleFavorite={() => setFavorite((v) => !v)}
+              error={job.error}
+              onToggleFavorite={toggleFavorite}
               onAgain={startGeneration}
               onReset={reset}
               onDownload={download}
             />
           )}
 
-          {step === 3 && !previewUrl && (
+          {step === 3 && (!previewUrl || !job) && (
             <div className="rounded-card border border-line bg-panel p-8 text-center">
               <p className="text-sm text-muted">
                 Фото не найдено.{" "}
@@ -294,8 +481,16 @@ export function PhotoStudio({
           )}
         </div>
 
-        {/* Summary */}
-        <aside className="h-fit lg:sticky lg:top-24">
+        {/* Summary. На мобильном в шаге выбора стиля поднимаем блок над
+            заголовком «Выберите стиль»; в шаге загрузки прячем — он дублирует
+            фото и параметры ещё пустые. На десктопе order/скрытие сбрасываются. */}
+        <aside
+          className={[
+            "h-fit lg:sticky lg:top-24 lg:order-none",
+            step === 2 ? "order-first" : "",
+            step === 1 ? "hidden lg:block" : "",
+          ].join(" ")}
+        >
           <div className="flex flex-col gap-4 rounded-card border border-line bg-panel p-5">
             <div className="relative aspect-[4/3] w-full overflow-hidden rounded-tile border border-line bg-elevated">
               {previewUrl ? (
@@ -310,6 +505,9 @@ export function PhotoStudio({
                   <CameraIcon className="size-7" />
                 </span>
               )}
+              <span className="absolute left-3 top-3 rounded-full border border-line-strong bg-canvas/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink backdrop-blur">
+                {mode === "video" ? "Видео" : "Фото"}
+              </span>
             </div>
 
             <dl className="flex flex-col gap-2.5 text-sm">
@@ -328,16 +526,39 @@ export function PhotoStudio({
                 <dt className="text-muted">Формат</dt>
                 <dd className="font-medium text-ink">{ratio}</dd>
               </div>
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-muted">Количество</dt>
-                <dd className="font-medium text-ink">{count}</dd>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-muted">Лицо</dt>
-                <dd className="font-medium text-ink">
-                  {keepFace ? "Сохраняем" : "Свободно"}
-                </dd>
-              </div>
+              {mode === "image" ? (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted">Количество</dt>
+                    <dd className="font-medium text-ink">{count}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted">Лицо</dt>
+                    <dd className="font-medium text-ink">
+                      {keepFace ? "Сохраняем" : "Свободно"}
+                    </dd>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted">Разрешение</dt>
+                    <dd className="font-medium text-ink">
+                      {videoResolution}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted">Длительность</dt>
+                    <dd className="font-medium text-ink">{duration} с</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted">Звук</dt>
+                    <dd className="font-medium text-ink">
+                      {audio ? "Есть" : "Нет"}
+                    </dd>
+                  </div>
+                </>
+              )}
             </dl>
 
             <div className="rounded-tile border border-line bg-elevated px-4 py-3">
@@ -347,6 +568,11 @@ export function PhotoStudio({
                 Осталось {left} из {limit} генераций
               </p>
             </div>
+
+            <p className="flex items-start gap-2 text-xs text-faint">
+              <SparkIcon className="mt-0.5 size-3.5 shrink-0 text-brand" />
+              Результат сохраняется в вашей галерее.
+            </p>
           </div>
         </aside>
       </div>

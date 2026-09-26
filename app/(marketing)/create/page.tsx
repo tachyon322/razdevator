@@ -5,9 +5,9 @@ import { getPlan } from "@/lib/plans";
 import { PhotoStudio } from "../../components/create/PhotoStudio";
 
 export const metadata = {
-  title: "Создание фото — Раздеватор",
+  title: "Студия — Раздеватор",
   description:
-    "Загрузите фото, выберите стиль и получите готовый 18+ кадр. Приватно и без публикации.",
+    "Загрузите фото, выберите стиль и получите готовый 18+ кадр или видео. Приватно и без публикации.",
 };
 
 export default async function CreatePage() {
