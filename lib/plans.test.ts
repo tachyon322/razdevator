@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  MIN_TOPUP,
   PRICES,
   TOPUPS,
   TRIAL,
@@ -39,6 +40,11 @@ test("generationWeight: видео весит 3, фото — по кадру", 
 test("TOPUPS: пресеты пополнения по возрастанию", () => {
   assert.deepEqual([...TOPUPS], [500, 1000, 2000, 5000]);
   assert.ok(TOPUPS.every((amount) => amount % PRICES.image === 0));
+});
+
+test("MIN_TOPUP: минимум не больше самого мелкого пресета", () => {
+  assert.equal(MIN_TOPUP, 100);
+  assert.ok(MIN_TOPUP <= Math.min(...TOPUPS));
 });
 
 test("formatPrice: рубли с разделителем разрядов", () => {

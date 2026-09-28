@@ -66,6 +66,9 @@ export const PACKS: Pack[] = [
 /** Пресеты быстрого пополнения баланса (в рублях). */
 export const TOPUPS = [500, 1000, 2000, 5000] as const;
 
+/** Минимальная сумма ручного пополнения баланса (в рублях). */
+export const MIN_TOPUP = 100;
+
 export function formatPrice(price: number): string {
   return `${price.toLocaleString("ru-RU")} ₽`;
 }
