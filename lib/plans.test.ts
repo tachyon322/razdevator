@@ -43,7 +43,7 @@ test("TOPUPS: пресеты пополнения по возрастанию", 
 });
 
 test("MIN_TOPUP: минимум не больше самого мелкого пресета", () => {
-  assert.equal(MIN_TOPUP, 100);
+  assert.equal(MIN_TOPUP, 300);
   assert.ok(MIN_TOPUP <= Math.min(...TOPUPS));
 });
 
