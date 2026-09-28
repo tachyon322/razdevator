@@ -148,7 +148,23 @@ export function getDb(): DatabaseType {
   db.pragma("cache_size = -16000"); // ~16 МБ
   db.pragma("mmap_size = 67108864"); // 64 МБ
   db.pragma("temp_store = MEMORY");
+  ensureUserBillingColumn(db);
   return db;
+}
+
+/**
+ * better-auth 1.7 не добавляет новые additionalFields к уже созданной таблице
+ * `user` автоматически и падает с ошибкой схемы. Идемпотентно добавляем колонку
+ * баланса до первой проверки схемы better-auth. На чистой базе колонку создаст
+ * сам better-auth — тогда этот код ничего не делает.
+ */
+function ensureUserBillingColumn(instance: DatabaseType): void {
+  const columns = instance
+    .prepare(`PRAGMA table_info("user")`)
+    .all() as { name: string }[];
+  if (columns.length === 0) return;
+  if (columns.some((column) => column.name === "balanceRub")) return;
+  instance.exec(`ALTER TABLE "user" ADD COLUMN "balanceRub" integer`);
 }
 
 const statements = new Map<string, Statement>();
@@ -459,13 +475,37 @@ export function incrementGenerationsUsed(userId: string, delta: number): void {
 export interface UserUsage {
   plan: string | null;
   generationsUsed: number | null;
+  balanceRub: number | null;
 }
 
-/** Свежие тариф и счётчик генераций (в обход cookie-кеша сессии). */
+/** Свежие счётчик генераций и баланс (в обход cookie-кеша сессии). */
 export function getUserUsage(userId: string): UserUsage | null {
   ensureSchema();
   const row = stmt(
-    `SELECT "plan", "generationsUsed" FROM "user" WHERE "id" = ?`,
+    `SELECT "plan", "generationsUsed", "balanceRub" FROM "user" WHERE "id" = ?`,
   ).get(userId) as UserUsage | undefined;
   return row ?? null;
+}
+
+/**
+ * Списывает сумму с баланса. Возвращает false, если денег не хватило
+ * (защита от гонок: два запроса не уйдут в минус).
+ */
+export function deductBalance(userId: string, amount: number): boolean {
+  if (amount <= 0) return true;
+  ensureSchema();
+  const info = stmt(
+    `UPDATE "user" SET "balanceRub" = COALESCE("balanceRub", 0) - ?
+      WHERE "id" = ? AND COALESCE("balanceRub", 0) >= ?`,
+  ).run(amount, userId, amount);
+  return info.changes > 0;
+}
+
+/** Пополняет баланс. Используется для ручного зачисления и будущих вебхуков оплаты. */
+export function addBalance(userId: string, amount: number): void {
+  if (amount <= 0) return;
+  ensureSchema();
+  stmt(
+    `UPDATE "user" SET "balanceRub" = COALESCE("balanceRub", 0) + ? WHERE "id" = ?`,
+  ).run(amount, userId);
 }

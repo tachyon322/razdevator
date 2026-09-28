@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getUserUsage } from "@/lib/db";
-import { formatPrice, getPlan } from "@/lib/plans";
+import { PRICES, TRIAL, formatPrice } from "@/lib/plans";
 import { SignOutButton } from "../../components/SignOutButton";
 import { ArrowRightIcon, BoltIcon, CheckIcon, ImageIcon } from "../../components/icons";
 
@@ -29,14 +29,15 @@ export default async function ProfilePage() {
   const initial = label.trim().charAt(0).toUpperCase();
 
   const usage = getUserUsage(user.id);
-  const plan = getPlan(usage?.plan);
   const used = usage?.generationsUsed ?? 0;
-  const left = Math.max(plan.limit - used, 0);
+  const left = Math.max(TRIAL.limit - used, 0);
+  const balance = usage?.balanceRub ?? 0;
   const percent =
-    plan.limit > 0 ? Math.min(100, Math.round((used / plan.limit) * 100)) : 0;
+    TRIAL.limit > 0
+      ? Math.min(100, Math.round((used / TRIAL.limit) * 100))
+      : 0;
 
   const createdAt = formatDate(user.createdAt);
-  const renewsAt = formatDate(user.planRenewsAt);
 
   return (
     <main className="flex-1 py-14 sm:py-20">
@@ -58,29 +59,34 @@ export default async function ProfilePage() {
         </div>
 
         <div className="mt-6 grid gap-5 md:grid-cols-2">
-          {/* Tariff */}
+          {/* Access */}
           <div className="flex flex-col rounded-card border border-line bg-panel p-6">
-            <span className="text-sm font-medium text-muted">Тариф</span>
+            <span className="text-sm font-medium text-muted">Доступ</span>
             <p className="mt-3 font-display text-2xl font-extrabold tracking-tight text-ink">
-              {plan.name}
+              {TRIAL.name}
             </p>
             <p className="mt-1 text-sm text-faint">
-              {plan.price > 0
-                ? `${formatPrice(plan.price)} ${plan.note}`
-                : "бесплатный пробный доступ"}
+              {formatPrice(PRICES.image)} за фото · {formatPrice(PRICES.video)}{" "}
+              за видео
+            </p>
+
+            <p className="mt-3 text-sm text-muted">
+              Баланс:{" "}
+              <span className="font-semibold text-ink">
+                {formatPrice(balance)}
+              </span>
             </p>
 
             <p className="mt-4 flex-1 text-sm text-muted">
-              {renewsAt
-                ? `Обновление ${renewsAt}`
-                : "Дата списания появится после активации платного тарифа."}
+              Пробные генерации не продлеваются. Когда они закончатся, платные
+              генерации спишутся с баланса.
             </p>
 
             <Link
               href="/pricing"
               className="mt-5 inline-flex h-11 items-center justify-center gap-2 rounded-full border border-line-strong text-sm font-semibold text-ink transition-colors hover:bg-panel-hover"
             >
-              Сменить тариф
+              Купить пакет
               <ArrowRightIcon className="size-4" />
             </Link>
           </div>
@@ -95,7 +101,7 @@ export default async function ProfilePage() {
             <p className="mt-3 font-display text-2xl font-extrabold tracking-tight text-ink">
               {left}{" "}
               <span className="text-base font-semibold text-muted">
-                из {plan.limit}
+                из {TRIAL.limit}
               </span>
             </p>
             <p className="mt-1 text-sm text-faint">генераций осталось</p>
@@ -105,7 +111,7 @@ export default async function ProfilePage() {
               role="progressbar"
               aria-valuenow={used}
               aria-valuemin={0}
-              aria-valuemax={plan.limit}
+              aria-valuemax={TRIAL.limit}
               aria-label="Использовано генераций"
             >
               <div
@@ -115,14 +121,13 @@ export default async function ProfilePage() {
             </div>
 
             <p className="mt-3 flex-1 text-sm text-muted">
-              Использовано {used} из {plan.limit}
-              {renewsAt ? ` · сброс ${renewsAt}` : ""}
+              Использовано {used} из {TRIAL.limit}
             </p>
 
             {left === 0 && (
               <p className="mt-4 flex items-start gap-2 rounded-tile border border-brand/40 bg-brand-soft px-4 py-3 text-sm text-ink">
                 <CheckIcon className="mt-0.5 size-4 shrink-0 text-brand" />
-                Лимит исчерпан. Выберите тариф, чтобы продолжить.
+                Лимит исчерпан. Купите пакет, чтобы продолжить.
               </p>
             )}
           </div>

@@ -17,11 +17,13 @@ import {
 } from "./nanogpt";
 import {
   addAsset,
+  deductBalance,
   incrementGenerationsUsed,
   nextAssetPosition,
   updateGeneration,
   type GenerationKind,
 } from "./db";
+import type { Billing } from "./plans";
 import { buildImagePrompt, buildVideoPrompt, type Selections } from "./prompt";
 import { buildGenerationKey, ensureBucket, putObject } from "./storage";
 
@@ -45,8 +47,24 @@ export interface GenerationJob {
   /** Только для video. */
   duration?: number;
   audio?: boolean;
+  /** Как списать генерацию: пробный лимит или деньги с баланса. */
+  billing: Billing;
   /** Исходное фото как data URL (держится в памяти на время генерации). */
   sourceDataUrl: string;
+}
+
+/** Применяет списание только после успешной генерации. Экспортируется для тестов. */
+export function applyBilling(job: GenerationJob, actualUnits: number): void {
+  const { billing } = job;
+  if (billing.mode === "balance") {
+    if (billing.costRub > 0 && !deductBalance(job.userId, billing.costRub)) {
+      console.error(
+        `[generation:${job.generationId}] не удалось списать ${billing.costRub} ₽ с баланса`,
+      );
+    }
+    return;
+  }
+  incrementGenerationsUsed(job.userId, billing.units || actualUnits);
 }
 
 function clampCount(value: unknown): number {
@@ -116,7 +134,7 @@ async function processImage(job: GenerationJob): Promise<void> {
     status: "succeeded",
     costUsd: result.costUsd ?? null,
   });
-  incrementGenerationsUsed(job.userId, result.images.length);
+  applyBilling(job, result.images.length);
 }
 
 async function processVideo(job: GenerationJob): Promise<void> {
@@ -153,7 +171,7 @@ async function processVideo(job: GenerationJob): Promise<void> {
   });
 
   updateGeneration(job.generationId, { status: "succeeded" });
-  incrementGenerationsUsed(job.userId, VIDEO_LIMIT_COST);
+  applyBilling(job, VIDEO_LIMIT_COST);
 }
 
 async function pollVideo(runId: string): Promise<string> {

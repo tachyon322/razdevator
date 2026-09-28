@@ -184,7 +184,7 @@ export default function Home() {
                 href="/pricing"
                 className="inline-flex h-13 items-center justify-center rounded-full border border-line-strong px-8 text-[15px] font-semibold text-ink transition-colors hover:bg-panel-hover"
               >
-                Посмотреть тарифы
+                Посмотреть цены
               </a>
             </div>
           </div>

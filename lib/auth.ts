@@ -34,6 +34,12 @@ export const auth = betterAuth({
         defaultValue: 0,
         input: false,
       },
+      balanceRub: {
+        type: "number",
+        required: false,
+        defaultValue: 0,
+        input: false,
+      },
       planRenewsAt: {
         type: "date",
         required: false,

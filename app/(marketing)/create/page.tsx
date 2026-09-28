@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getUserUsage } from "@/lib/db";
-import { getPlan } from "@/lib/plans";
+import { TRIAL } from "@/lib/plans";
 import { PhotoStudio } from "../../components/create/PhotoStudio";
 
 export const metadata = {
@@ -16,9 +16,9 @@ export default async function CreatePage() {
   if (!session) redirect("/login?next=/create");
 
   const usage = getUserUsage(session.user.id);
-  const plan = getPlan(usage?.plan);
   const used = usage?.generationsUsed ?? 0;
-  const left = Math.max(plan.limit - used, 0);
+  const left = Math.max(TRIAL.limit - used, 0);
+  const balance = usage?.balanceRub ?? 0;
 
   return (
     <main className="flex-1 py-10 sm:py-14">
@@ -33,7 +33,12 @@ export default async function CreatePage() {
             </p>
           </div>
 
-          <PhotoStudio planName={plan.name} left={left} limit={plan.limit} />
+          <PhotoStudio
+            planName={TRIAL.name}
+            left={left}
+            limit={TRIAL.limit}
+            balance={balance}
+          />
         </div>
       </div>
     </main>

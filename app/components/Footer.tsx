@@ -5,7 +5,7 @@ import { SUPPORT_EMAIL, SUPPORT_TELEGRAM } from "@/lib/support";
 const SERVICE_NAV = [
   { href: "/#how", label: "Как это работает" },
   { href: "/gallery", label: "Галерея" },
-  { href: "/pricing", label: "Тарифы" },
+  { href: "/pricing", label: "Цены" },
   { href: "/faq", label: "FAQ" },
 ];
 

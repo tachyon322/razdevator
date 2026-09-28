@@ -10,8 +10,20 @@ import {
   putObject,
 } from "@/lib/storage";
 import { createGeneration, getUserUsage } from "@/lib/db";
-import { generationWeight, getPlan } from "@/lib/plans";
+import {
+  TRIAL,
+  formatPrice,
+  generationCostRub,
+  resolveBilling,
+  type Billing,
+} from "@/lib/plans";
 import { imageModel, videoModel } from "@/lib/nanogpt";
+import {
+  assessAge,
+  isSourceAllowed,
+  moderationEnabled,
+  rejectionMessage,
+} from "@/lib/moderation";
 import {
   processGeneration,
   type GenerationJob,
@@ -143,25 +155,52 @@ export async function POST(request: Request) {
     audio = String(form.get("audio") ?? "false") === "true";
   }
 
-  // Проверка лимита тарифа (свежие данные, в обход cookie-кеша сессии).
-  const usage = getUserUsage(session.user.id);
-  const plan = getPlan(usage?.plan);
-  const used = usage?.generationsUsed ?? 0;
-  const weight = generationWeight(kind, count);
-  if (used + weight > plan.limit) {
-    return NextResponse.json(
-      {
-        message:
-          kind === "video"
-            ? "Для видео нужно 3 генерации лимита. Выберите тариф повыше."
-            : "Лимит исчерпан. Выберите тариф, чтобы продолжить.",
-      },
-      { status: 403 },
-    );
-  }
-
   const buffer = new Uint8Array(await file.arrayBuffer());
   const sourceDataUrl = `data:${file.type};base64,${Buffer.from(buffer).toString("base64")}`;
+
+  // Возрастные ворота: не запускаем генерацию по фото несовершеннолетнего.
+  // Fail-closed: ошибка, таймаут или неуверенность модели — это отказ, а не пропуск.
+  if (moderationEnabled()) {
+    try {
+      const assessment = await assessAge(sourceDataUrl);
+      if (!isSourceAllowed(assessment)) {
+        console.warn("[generate] возрастные ворота: отказ", assessment);
+        return NextResponse.json(
+          { message: rejectionMessage() },
+          { status: 403 },
+        );
+      }
+    } catch (error) {
+      console.error("[generate] возрастные ворота недоступны:", error);
+      return NextResponse.json(
+        { message: "Проверка фото временно недоступна. Попробуйте позже." },
+        { status: 503 },
+      );
+    }
+  }
+
+  // Оплата: сначала бесплатные пробные генерации, затем деньги с баланса.
+  // Данные читаем свежими, в обход cookie-кеша сессии.
+  const usage = getUserUsage(session.user.id);
+  const used = usage?.generationsUsed ?? 0;
+  const balance = usage?.balanceRub ?? 0;
+  const trialLeft = Math.max(TRIAL.limit - used, 0);
+
+  const billing: Billing | null = resolveBilling({
+    kind,
+    count,
+    trialLeft,
+    balance,
+  });
+  if (!billing) {
+    const costRub = generationCostRub(kind, count);
+    return NextResponse.json(
+      {
+        message: `Недостаточно средств: нужно ${formatPrice(costRub)}, на балансе ${formatPrice(balance)}. Пополните баланс, чтобы продолжить.`,
+      },
+      { status: 402 },
+    );
+  }
 
   try {
     await ensureBucket();
@@ -172,6 +211,7 @@ export async function POST(request: Request) {
       selections,
       keepFace,
       ratio,
+      billing,
       ...(kind === "image"
         ? { count, resolution }
         : { resolution, duration, audio }),
@@ -197,13 +237,14 @@ export async function POST(request: Request) {
       count,
       duration,
       audio,
+      billing,
       sourceDataUrl,
     };
 
     after(() => processGeneration(job));
 
     return NextResponse.json(
-      { id: generation.id, status: "pending" },
+      { id: generation.id, status: "pending", billing },
       { status: 202 },
     );
   } catch (error) {

@@ -1,86 +1,117 @@
-export type PlanId = "free" | "basic" | "premium";
-
-export interface Plan {
-  id: PlanId;
+export interface Pack {
+  id: string;
   name: string;
-  /** Цена в рублях за месяц (0 для бесплатного). */
+  /** Цена пака в рублях. */
   price: number;
-  /** Лимит генераций в месяц. */
-  limit: number;
+  /** Сколько фото входит в пак. */
+  images: number;
+  /** Сколько видео входит в пак. */
+  videos: number;
   note: string;
   tagline: string;
   features: string[];
-  /** Показывать ли тариф на странице /pricing. */
-  purchasable: boolean;
   highlighted?: boolean;
   cta: string;
 }
 
-export const PLANS: Record<PlanId, Plan> = {
-  free: {
-    id: "free",
-    name: "Бесплатный",
-    price: 0,
-    limit: 3,
-    note: "пробный доступ",
-    tagline: "Познакомиться с сервисом.",
-    features: ["3 пробные генерации", "Базовые стили"],
-    purchasable: false,
-    cta: "Текущий тариф",
-  },
-  basic: {
-    id: "basic",
-    name: "Базовый",
+/** Цена одной генерации в рублях. */
+export const PRICES = {
+  image: 100,
+  video: 250,
+} as const;
+
+/** Бесплатный пробный доступ: сколько генераций даём сразу после регистрации. */
+export const TRIAL = {
+  name: "Пробный доступ",
+  limit: 3,
+} as const;
+
+/** Паки со скидкой относительно поштучной цены. */
+export const PACKS: Pack[] = [
+  {
+    id: "start",
+    name: "Пакет 2000",
     price: 2000,
-    limit: 100,
-    note: "в месяц",
-    tagline: "Для регулярных экспериментов с образами.",
+    images: 20,
+    videos: 2,
+    note: "разовая покупка",
+    tagline: "Небольшой запас кадров для первых экспериментов.",
     features: [
-      "100 генераций в месяц",
-      "Все базовые стили",
+      "20 фото",
+      "2 видео",
+      "Выгода 500 ₽",
       "Экспорт без водяных знаков",
-      "Стандартная очередь",
     ],
-    purchasable: true,
-    highlighted: true,
-    cta: "Выбрать Базовый",
+    cta: "Купить за 2000 ₽",
   },
-  premium: {
-    id: "premium",
-    name: "Премиум",
+  {
+    id: "studio",
+    name: "Пакет 5000",
     price: 5000,
-    limit: 500,
-    note: "в месяц",
-    tagline: "Для тех, кому нужен максимум качества.",
+    images: 55,
+    videos: 5,
+    note: "разовая покупка",
+    tagline: "Для тех, кто генерирует регулярно и с запасом.",
     features: [
-      "500 генераций в месяц",
-      "Все стили и локации",
-      "Максимальное разрешение",
+      "55 фото",
+      "5 видео",
+      "Выгода 1750 ₽",
       "Приоритетная очередь",
-      "Ранний доступ к новым стилям",
     ],
-    purchasable: true,
-    cta: "Выбрать Премиум",
+    highlighted: true,
+    cta: "Купить за 5000 ₽",
   },
-};
-
-export const DEFAULT_PLAN: PlanId = "free";
-
-/** Тарифы, которые показываем на /pricing. */
-export const PURCHASABLE_PLANS: Plan[] = Object.values(PLANS).filter(
-  (plan) => plan.purchasable,
-);
-
-export function getPlan(id?: string | null): Plan {
-  if (id && id in PLANS) return PLANS[id as PlanId];
-  return PLANS[DEFAULT_PLAN];
-}
+];
 
 export function formatPrice(price: number): string {
   return `${price.toLocaleString("ru-RU")} ₽`;
 }
 
-/** Сколько единиц лимита списывает одна генерация. */
+/** Стоимость запроса в рублях: фото — за каждый кадр, видео — фиксированно. */
+export function generationCostRub(
+  kind: "image" | "video",
+  count = 1,
+): number {
+  if (kind === "video") return PRICES.video;
+  return PRICES.image * Math.max(1, Math.round(count));
+}
+
+/**
+ * Как списывается генерация: сначала бесплатные пробные, затем деньги с баланса.
+ * Решение принимается в /api/generate и передаётся в фоновую обработку.
+ */
+export interface Billing {
+  mode: "trial" | "balance";
+  /** Сколько единиц пробного лимита списать (0 при оплате деньгами). */
+  units: number;
+  /** Сколько рублей списать с баланса (0 для пробной генерации). */
+  costRub: number;
+}
+
+/**
+ * Решает, чем оплатить запрос: пробным лимитом, деньгами с баланса или
+ * отказать. Возвращает `null`, если не хватает ни пробных генераций, ни денег.
+ */
+export function resolveBilling(input: {
+  kind: "image" | "video";
+  count: number;
+  /** Сколько единиц пробного лимита осталось. */
+  trialLeft: number;
+  /** Баланс в рублях. */
+  balance: number;
+}): Billing | null {
+  const units = generationWeight(input.kind, input.count);
+  if (input.trialLeft >= units) {
+    return { mode: "trial", units, costRub: 0 };
+  }
+  const costRub = generationCostRub(input.kind, input.count);
+  if (input.balance >= costRub) {
+    return { mode: "balance", units: 0, costRub };
+  }
+  return null;
+}
+
+/** Сколько единиц пробного лимита списывает одна генерация. */
 export const GENERATION_WEIGHTS = { image: 1, video: 3 } as const;
 
 export function generationWeight(

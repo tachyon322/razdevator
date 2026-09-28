@@ -9,7 +9,7 @@ import { CloseIcon, MenuIcon } from "./icons";
 
 const NAV = [
   { href: "/#how", label: "Как это работает" },
-  { href: "/pricing", label: "Тарифы", match: "/pricing" },
+  { href: "/pricing", label: "Цены", match: "/pricing" },
   { href: "/#privacy", label: "Приватность" },
   { href: "/gallery", label: "Галерея", match: "/gallery" },
 ];
@@ -17,7 +17,7 @@ const NAV = [
 /** В бургер-меню FAQ остаётся доступным, даже когда его нет в верхнем меню. */
 const MENU_NAV = [
   { href: "/#how", label: "Как это работает" },
-  { href: "/pricing", label: "Тарифы", match: "/pricing" },
+  { href: "/pricing", label: "Цены", match: "/pricing" },
   { href: "/#privacy", label: "Приватность" },
   { href: "/faq", label: "FAQ", match: "/faq" },
 ];

@@ -14,7 +14,7 @@ interface BottomNavItem {
 
 const LEFT_ITEMS: BottomNavItem[] = [
   { href: "/", label: "Главная", icon: House, match: "/" },
-  { href: "/pricing", label: "Тарифы", icon: Tag, match: "/pricing" },
+  { href: "/pricing", label: "Цены", icon: Tag, match: "/pricing" },
 ];
 
 const RIGHT_ITEMS: BottomNavItem[] = [

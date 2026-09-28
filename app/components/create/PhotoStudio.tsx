@@ -21,6 +21,7 @@ import {
 } from "./presets";
 import type { GenerationDTO } from "@/lib/generation-dto";
 import { prepareImageUpload } from "@/lib/image-client";
+import { PRICES, formatPrice, type Billing } from "@/lib/plans";
 import { ArrowRightIcon, CameraIcon, SparkIcon } from "../icons";
 
 const POLL_START_MS = 2500;
@@ -45,10 +46,12 @@ export function PhotoStudio({
   planName,
   left: initialLeft,
   limit,
+  balance: initialBalance,
 }: {
   planName: string;
   left: number;
   limit: number;
+  balance: number;
 }) {
   const [mode, setMode] = useState<StudioMode>("image");
   const [step, setStep] = useState(1);
@@ -76,6 +79,8 @@ export function PhotoStudio({
   const [audio, setAudio] = useState(false);
 
   const [left, setLeft] = useState(initialLeft);
+  const [balance, setBalance] = useState(initialBalance);
+  const pendingBillingRef = useRef<Billing | null>(null);
   const [busy, setBusy] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [job, setJob] = useState<GenerationDTO | null>(null);
@@ -150,11 +155,15 @@ export function PhotoStudio({
         setJob(data);
         setFavorite(data.favorite);
         if (data.status === "succeeded") {
-          const weight =
-            data.kind === "video"
-              ? 3
-              : Number(data.params.count ?? 1) || 1;
-          setLeft((value) => Math.max(0, value - weight));
+          const billing = pendingBillingRef.current;
+          if (billing) {
+            if (billing.mode === "trial") {
+              setLeft((value) => Math.max(0, value - billing.units));
+            } else {
+              setBalance((value) => Math.max(0, value - billing.costRub));
+            }
+            pendingBillingRef.current = null;
+          }
           return;
         }
         if (data.status === "failed") return;
@@ -256,6 +265,7 @@ export function PhotoStudio({
 
   const switchMode = (next: StudioMode) => {
     if (next === mode) return;
+    pendingBillingRef.current = null;
     setMode(next);
     setJob(null);
     setFavorite(false);
@@ -294,7 +304,8 @@ export function PhotoStudio({
         setStartError(data?.message ?? "Не удалось запустить генерацию.");
         return;
       }
-      const data = (await res.json()) as { id: string };
+      const data = (await res.json()) as { id: string; billing?: Billing };
+      pendingBillingRef.current = data.billing ?? null;
       setJob({
         id: data.id,
         kind: mode,
@@ -327,6 +338,7 @@ export function PhotoStudio({
 
   const reset = () => {
     prepareTokenRef.current += 1;
+    pendingBillingRef.current = null;
     setPreparing(false);
     setPreview(null);
     setFile(null);
@@ -490,6 +502,7 @@ export function PhotoStudio({
                 onAudio={setAudio}
                 left={left}
                 limit={limit}
+                balance={balance}
                 busy={busy}
                 onGenerate={startGeneration}
               />
@@ -632,10 +645,16 @@ export function PhotoStudio({
             </dl>
 
             <div className="rounded-tile border border-line bg-elevated px-4 py-3">
-              <p className="text-xs text-faint">Тариф</p>
+              <p className="text-xs text-faint">Доступ</p>
               <p className="mt-0.5 text-sm font-semibold text-ink">{planName}</p>
               <p className="mt-0.5 text-xs text-muted">
                 Осталось {left} из {limit} генераций
+              </p>
+              <p className="mt-1 text-xs text-faint">
+                Баланс: {formatPrice(balance)}
+              </p>
+              <p className="mt-1 text-xs text-faint">
+                Фото {formatPrice(PRICES.image)} · Видео {formatPrice(PRICES.video)}
               </p>
             </div>
 

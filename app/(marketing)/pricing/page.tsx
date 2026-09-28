@@ -1,17 +1,51 @@
 import Link from "next/link";
-import { ArrowRightIcon, CheckIcon } from "../../components/icons";
-import { PURCHASABLE_PLANS, formatPrice } from "@/lib/plans";
+import {
+  ArrowRightIcon,
+  CheckIcon,
+  ImageIcon,
+  VideoIcon,
+} from "../../components/icons";
+import { PACKS, PRICES, TRIAL, formatPrice } from "@/lib/plans";
 
 export const metadata = {
-  title: "Тарифы — Раздеватор",
+  title: "Цены — Раздеватор",
   description:
-    "Два месячных тарифа: Базовый за 2000 ₽ и Премиум за 5000 ₽. Оплата картой, отмена в любой момент.",
+    "Фото — 100 ₽, видео — 250 ₽ за генерацию. Пакеты за 2000 ₽ и 5000 ₽ со скидкой. Первые 3 генерации бесплатно.",
 };
 
+const PER_ITEM = [
+  {
+    id: "image",
+    name: "Фото",
+    icon: ImageIcon,
+    price: PRICES.image,
+    note: "за одно изображение",
+    features: [
+      "Кадр в высоком разрешении",
+      "Любой из 20+ стилей",
+      "Без водяных знаков",
+      "Сохраняется в галерею",
+    ],
+  },
+  {
+    id: "video",
+    name: "Видео",
+    icon: VideoIcon,
+    price: PRICES.video,
+    note: "за один ролик",
+    features: [
+      "Ролик до 15 секунд",
+      "480p, 720p или 1080p",
+      "Звук по желанию",
+      "Сохраняется в галерею",
+    ],
+  },
+];
+
 const NOTES = [
-  "Оплата картой, списание раз в месяц",
-  "Отмена в любой момент без звонков и писем",
-  "Неудачная генерация не расходует лимит",
+  "Оплата за результат: фото и видео считаются отдельно",
+  "Пакеты выгоднее поштучной цены",
+  "Неудачная генерация не расходует оплату",
 ];
 
 export default function PricingPage() {
@@ -20,43 +54,39 @@ export default function PricingPage() {
       <div className="container-page">
         <div className="max-w-2xl">
           <h1 className="font-display text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
-            Тарифы
+            Цены
           </h1>
           <p className="mt-4 text-base leading-relaxed text-muted sm:text-lg">
-            Два простых месячных тарифа. Начните с Базового — при необходимости
-            перейдите на Премиум.
+            Платите за результат: фото — {formatPrice(PRICES.image)}, видео —{" "}
+            {formatPrice(PRICES.video)}. А если генерируете много — берите пакет
+            со скидкой.
           </p>
         </div>
 
+        {/* Цена за одну генерацию */}
         <div className="mx-auto mt-10 grid max-w-4xl gap-5 md:grid-cols-2">
-          {PURCHASABLE_PLANS.map((plan) => (
+          {PER_ITEM.map((item) => (
             <div
-              key={plan.id}
-              className={[
-                "relative flex flex-col rounded-card border p-6 sm:p-7",
-                plan.highlighted
-                  ? "border-brand/50 bg-panel shadow-[0_24px_60px_-30px_rgba(225,29,72,0.8)]"
-                  : "border-line bg-panel",
-              ].join(" ")}
+              key={item.id}
+              className="flex flex-col rounded-card border border-line bg-panel p-6 sm:p-7"
             >
-              {plan.highlighted && (
-                <span className="absolute -top-3 left-6 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-white">
-                  Популярный
-                </span>
-              )}
+              <span className="grid size-11 place-items-center rounded-tile bg-brand-soft text-brand">
+                <item.icon className="size-5" />
+              </span>
 
-              <h2 className="text-lg font-semibold text-ink">{plan.name}</h2>
-              <p className="mt-1 text-sm text-faint">{plan.tagline}</p>
+              <h2 className="mt-4 text-lg font-semibold text-ink">
+                {item.name}
+              </h2>
 
-              <p className="mt-5 flex items-baseline gap-2">
+              <p className="mt-3 flex items-baseline gap-2">
                 <span className="font-display text-3xl font-extrabold tracking-tight text-ink">
-                  {formatPrice(plan.price)}
+                  {formatPrice(item.price)}
                 </span>
-                <span className="text-sm text-faint">{plan.note}</span>
+                <span className="text-sm text-faint">{item.note}</span>
               </p>
 
               <ul className="mt-6 flex flex-1 flex-col gap-3">
-                {plan.features.map((feature) => (
+                {item.features.map((feature) => (
                   <li
                     key={feature}
                     className="flex items-start gap-2.5 text-sm text-muted"
@@ -67,19 +97,84 @@ export default function PricingPage() {
                 ))}
               </ul>
 
-              <a
-                href="#create"
-                className={[
-                  "mt-7 inline-flex h-12 items-center justify-center rounded-full text-sm font-semibold transition-transform hover:-translate-y-0.5",
-                  plan.highlighted
-                    ? "bg-[linear-gradient(135deg,#e11d48,#9f1239)] text-white shadow-[0_14px_40px_-16px_rgba(225,29,72,0.9)]"
-                    : "border border-line-strong text-ink hover:bg-panel-hover",
-                ].join(" ")}
+              <Link
+                href="/create"
+                className="mt-7 inline-flex h-12 items-center justify-center rounded-full border border-line-strong text-sm font-semibold text-ink transition-colors hover:bg-panel-hover"
               >
-                {plan.cta}
-              </a>
+                Создать {item.id === "video" ? "видео" : "фото"}
+              </Link>
             </div>
           ))}
+        </div>
+
+        {/* Паки */}
+        <div className="mx-auto mt-14 max-w-4xl">
+          <h2 className="font-display text-xl font-bold tracking-tight text-ink sm:text-2xl">
+            Пакеты со скидкой
+          </h2>
+          <p className="mt-2 text-sm text-muted">
+            Больше генераций за меньшую цену — когда фото и видео нужно много.
+          </p>
+
+          <div className="mt-6 grid gap-5 md:grid-cols-2">
+            {PACKS.map((pack) => (
+              <div
+                key={pack.id}
+                className={[
+                  "relative flex flex-col rounded-card border p-6 sm:p-7",
+                  pack.highlighted
+                    ? "border-brand/50 bg-panel shadow-[0_24px_60px_-30px_rgba(225,29,72,0.8)]"
+                    : "border-line bg-panel",
+                ].join(" ")}
+              >
+                {pack.highlighted && (
+                  <span className="absolute -top-3 left-6 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-white">
+                    Выгоднее
+                  </span>
+                )}
+
+                <h3 className="text-lg font-semibold text-ink">{pack.name}</h3>
+                <p className="mt-1 text-sm text-faint">{pack.tagline}</p>
+
+                <p className="mt-5 flex items-baseline gap-2">
+                  <span className="font-display text-3xl font-extrabold tracking-tight text-ink">
+                    {formatPrice(pack.price)}
+                  </span>
+                  <span className="text-sm text-faint">{pack.note}</span>
+                </p>
+
+                <ul className="mt-6 flex flex-1 flex-col gap-3">
+                  {pack.features.map((feature) => (
+                    <li
+                      key={feature}
+                      className="flex items-start gap-2.5 text-sm text-muted"
+                    >
+                      <CheckIcon className="mt-0.5 size-4 shrink-0 text-brand" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+
+                <Link
+                  href="/create"
+                  className={[
+                    "mt-7 inline-flex h-12 items-center justify-center rounded-full text-sm font-semibold transition-transform hover:-translate-y-0.5",
+                    pack.highlighted
+                      ? "bg-[linear-gradient(135deg,#e11d48,#9f1239)] text-white shadow-[0_14px_40px_-16px_rgba(225,29,72,0.9)]"
+                      : "border border-line-strong text-ink hover:bg-panel-hover",
+                  ].join(" ")}
+                >
+                  {pack.cta}
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Пробный доступ */}
+        <div className="mx-auto mt-10 max-w-4xl rounded-panel border border-line bg-elevated px-6 py-5 text-center text-sm text-muted">
+          Начните бесплатно: {TRIAL.limit} пробные генерации доступны сразу после
+          регистрации, без оплаты.
         </div>
 
         <ul className="mx-auto mt-10 grid max-w-4xl gap-3 sm:grid-cols-3">
@@ -97,10 +192,10 @@ export default function PricingPage() {
         <div className="mx-auto mt-12 flex max-w-4xl flex-col items-start justify-between gap-4 rounded-panel border border-brand/40 bg-[linear-gradient(135deg,rgba(225,29,72,0.22),rgba(159,18,57,0.08))] p-7 sm:flex-row sm:items-center sm:p-8">
           <div>
             <h2 className="font-display text-xl font-bold tracking-tight text-ink sm:text-2xl">
-              Не уверены, какой тариф нужен?
+              Не уверены, что выбрать?
             </h2>
             <p className="mt-2 text-sm text-muted">
-              Начните с Базового и поменяйте план в один клик.
+              Начните с пробных генераций — пакет можно купить позже.
             </p>
           </div>
           <Link

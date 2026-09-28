@@ -15,6 +15,7 @@ import {
   type VideoResolution,
 } from "./presets";
 import { BoltIcon, CheckIcon, SpinnerIcon } from "../icons";
+import { PRICES, formatPrice } from "@/lib/plans";
 
 export function StylePicker({
   mode,
@@ -34,6 +35,7 @@ export function StylePicker({
   onAudio,
   left,
   limit,
+  balance,
   busy,
   onGenerate,
 }: {
@@ -54,6 +56,7 @@ export function StylePicker({
   onAudio: (v: boolean) => void;
   left: number;
   limit: number;
+  balance: number;
   busy: boolean;
   onGenerate: () => void;
 }) {
@@ -67,7 +70,10 @@ export function StylePicker({
     hasSelection(selections[c.id]),
   );
   const required = mode === "video" ? 3 : count;
-  const outOfLimit = left < required;
+  const costRub = mode === "video" ? PRICES.video : count * PRICES.image;
+  const trialCovers = left >= required;
+  const willCharge = !trialCovers && balance >= costRub;
+  const outOfLimit = !trialCovers && !willCharge;
   const missing = requiredCategories
     .filter((c) => !hasSelection(selections[c.id]))
     .map((c) => c.label.toLowerCase());
@@ -289,21 +295,36 @@ export function StylePicker({
         </div>
 
         <div className="flex items-center justify-between gap-3">
-          <span className="text-sm text-muted">Лимит генераций</span>
+          <span className="text-sm text-muted">Пробный доступ</span>
           <span className="text-sm font-semibold text-ink">
             Осталось {left} из {limit}
           </span>
         </div>
 
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-muted">Баланс</span>
+          <span className="text-sm font-semibold text-ink">
+            {formatPrice(balance)}
+          </span>
+        </div>
+
         {mode === "video" && (
           <p className="rounded-tile border border-line bg-elevated px-4 py-3 text-xs text-muted">
-            Видео списывает 3 генерации лимита.
+            Видео — {formatPrice(PRICES.video)} или 3 пробные генерации.
+          </p>
+        )}
+
+        {willCharge && (
+          <p className="rounded-tile border border-line bg-elevated px-4 py-3 text-xs text-muted">
+            Пробный доступ израсходован. Спишется {formatPrice(costRub)} с
+            баланса (остаток {formatPrice(balance)}).
           </p>
         )}
 
         {outOfLimit && (
           <p className="rounded-tile border border-brand/40 bg-brand-soft px-4 py-3 text-sm text-ink">
-            Лимит исчерпан. Выберите тариф, чтобы продолжить.
+            Недостаточно средств: нужно {formatPrice(costRub)}, на балансе{" "}
+            {formatPrice(balance)}. Пополните баланс, чтобы продолжить.
           </p>
         )}
 

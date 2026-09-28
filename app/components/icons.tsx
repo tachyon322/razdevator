@@ -121,6 +121,15 @@ export function ImageIcon(props: IconProps) {
   );
 }
 
+export function VideoIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="5" width="13" height="14" rx="2.5" />
+      <path d="m16 10 5-3v10l-5-3z" />
+    </svg>
+  );
+}
+
 export function ShieldCheckIcon(props: IconProps) {
   return (
     <svg {...base} {...props}>
