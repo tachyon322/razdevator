@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   PRICES,
+  TOPUPS,
   TRIAL,
   formatPrice,
   generationCostRub,
@@ -33,6 +34,11 @@ test("generationWeight: видео весит 3, фото — по кадру", 
   assert.equal(generationWeight("image", 4), 4);
   assert.equal(generationWeight("video", 1), 3);
   assert.equal(generationWeight("video", 4), 3);
+});
+
+test("TOPUPS: пресеты пополнения по возрастанию", () => {
+  assert.deepEqual([...TOPUPS], [500, 1000, 2000, 5000]);
+  assert.ok(TOPUPS.every((amount) => amount % PRICES.image === 0));
 });
 
 test("formatPrice: рубли с разделителем разрядов", () => {

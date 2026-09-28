@@ -1,8 +1,19 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Camera, Headphones, House, Images, Tag, type LucideIcon } from "lucide-react";
+import {
+  Camera,
+  House,
+  Images,
+  LogIn,
+  Tag,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
+import { useBalance } from "./balance-store";
+import { TopUpSheet } from "./TopUpSheet";
 
 interface BottomNavItem {
   href: string;
@@ -17,20 +28,25 @@ const LEFT_ITEMS: BottomNavItem[] = [
   { href: "/pricing", label: "Цены", icon: Tag, match: "/pricing" },
 ];
 
-const RIGHT_ITEMS: BottomNavItem[] = [
-  { href: "/gallery", label: "Галерея", icon: Images, match: "/gallery" },
-  { href: "/support", label: "Помощь", icon: Headphones, match: "/support" },
-];
+const GALLERY_ITEM: BottomNavItem = {
+  href: "/gallery",
+  label: "Галерея",
+  icon: Images,
+  match: "/gallery",
+};
 
 const CREATE_ITEM = { href: "/create", label: "Создать", icon: Camera };
 
 /**
  * Нижняя плавающая плашка навигации для смартфонов: 2 ссылки + круглая
- * «Создать» + 2 ссылки. Геометрия повторяет kazik/front/components/MobileNav.tsx,
- * цвета — из токенов проекта. На планшетах и десктопе скрыта (там верхнее меню).
+ * «Создать» + галерея + «Пополнить» (гостю — «Войти»). Геометрия повторяет
+ * kazik/front/components/MobileNav.tsx, цвета — из токенов проекта.
  */
 export function MobileBottomNav() {
   const pathname = usePathname();
+  const { status, balance } = useBalance();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const closeSheet = useCallback(() => setSheetOpen(false), []);
 
   const isActive = (match: string) =>
     match === "/" ? pathname === "/" : pathname.startsWith(match);
@@ -48,6 +64,41 @@ export function MobileBottomNav() {
       >
         <Icon className="size-[19px]" strokeWidth={1.7} aria-hidden="true" />
         <span>{label}</span>
+      </Link>
+    );
+  };
+
+  const renderTopUp = () => {
+    if (status === "loading") {
+      return (
+        <div aria-hidden className="grid min-h-[54px] place-items-center">
+          <span className="h-5 w-9 animate-pulse rounded-full bg-panel-hover" />
+        </div>
+      );
+    }
+
+    if (status === "authed") {
+      return (
+        <button
+          type="button"
+          onClick={() => setSheetOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={sheetOpen}
+          className="grid min-h-[54px] min-w-0 place-items-center content-center gap-[3px] rounded-[11px] text-[10px] font-semibold text-faint transition-colors hover:text-muted"
+        >
+          <Wallet className="size-[19px]" strokeWidth={1.7} aria-hidden="true" />
+          <span>Пополнить</span>
+        </button>
+      );
+    }
+
+    return (
+      <Link
+        href="/login"
+        className="grid min-h-[54px] min-w-0 place-items-center content-center gap-[3px] rounded-[11px] text-[10px] font-semibold text-faint transition-colors hover:text-muted"
+      >
+        <LogIn className="size-[19px]" strokeWidth={1.7} aria-hidden="true" />
+        <span>Войти</span>
       </Link>
     );
   };
@@ -84,8 +135,11 @@ export function MobileBottomNav() {
           <strong className="font-semibold">{CREATE_ITEM.label}</strong>
         </Link>
 
-        {RIGHT_ITEMS.map(renderItem)}
+        {renderItem(GALLERY_ITEM)}
+        {renderTopUp()}
       </nav>
+
+      {sheetOpen && <TopUpSheet balance={balance} onClose={closeSheet} />}
     </>
   );
 }

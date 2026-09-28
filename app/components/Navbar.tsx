@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "./Logo";
 import { AuthButtons } from "./AuthButtons";
+import { BalanceButton } from "./BalanceButton";
 import { CloseIcon, MenuIcon } from "./icons";
 
 const NAV = [
@@ -81,6 +82,7 @@ export function Navbar() {
         </nav>
 
         <div className="hidden lg:flex items-center gap-2">
+          <BalanceButton />
           <AuthButtons />
           <Link
             href="/create"

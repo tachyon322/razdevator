@@ -22,6 +22,7 @@ import {
 import type { GenerationDTO } from "@/lib/generation-dto";
 import { prepareImageUpload } from "@/lib/image-client";
 import { PRICES, formatPrice, type Billing } from "@/lib/plans";
+import { refreshBalance } from "../balance-store";
 import { ArrowRightIcon, CameraIcon, SparkIcon } from "../icons";
 
 const POLL_START_MS = 2500;
@@ -163,6 +164,8 @@ export function PhotoStudio({
               setBalance((value) => Math.max(0, value - billing.costRub));
             }
             pendingBillingRef.current = null;
+            // Обновляем шапку/мобильное меню: баланс изменился на сервере.
+            void refreshBalance();
           }
           return;
         }
