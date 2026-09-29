@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getPaymentByProviderUuid } from "@/lib/db";
-import { fetchPaymentStatus, verifyWebhookSignature } from "@/lib/exenta";
+import {
+  fetchPaymentStatus,
+  unwrapData,
+  verifyWebhookSignature,
+} from "@/lib/exenta";
 import { applyProviderStatus } from "@/lib/payments";
 
 export const runtime = "nodejs";
@@ -26,7 +30,8 @@ export async function POST(request: Request) {
 
   let uuid: unknown;
   try {
-    uuid = (JSON.parse(rawBody) as { paymentUuid?: unknown }).paymentUuid;
+    const data = unwrapData(JSON.parse(rawBody));
+    uuid = data?.paymentUuid ?? data?.uuid;
   } catch {
     return NextResponse.json({ message: "Invalid JSON" }, { status: 400 });
   }

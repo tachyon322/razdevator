@@ -10,7 +10,9 @@ const dataDir = mkdtempSync(join(tmpdir(), "razdevator-payments-"));
 process.env.DATA_DIR = dataDir;
 
 const db = await import("./db");
-const { rubToKopecks, verifyWebhookSignature } = await import("./exenta");
+const { parsePayment, rubToKopecks, verifyWebhookSignature } = await import(
+  "./exenta"
+);
 const { applyProviderStatus } = await import("./payments");
 const sqlite = db.getDb();
 
@@ -45,6 +47,30 @@ after(() => {
 test("rubToKopecks переводит рубли в копейки строкой", () => {
   assert.equal(rubToKopecks(1000), "100000");
   assert.equal(rubToKopecks(300), "30000");
+});
+
+test("parsePayment разбирает ответ в обёртке data (как отвечает живой API)", () => {
+  const payment = parsePayment({
+    success: true,
+    data: {
+      id: 14914,
+      uuid: "98d6bad0-452f-4351-bc18-51e498085fb5",
+      amount: "30000",
+      status: "PENDING",
+      redirectUrl: "https://qr.nspk.ru/AD101028KN4N4NCC8TL8AP6SAC0UF8CI",
+    },
+  });
+  assert.equal(payment.uuid, "98d6bad0-452f-4351-bc18-51e498085fb5");
+  assert.equal(payment.status, "PENDING");
+  assert.equal(payment.amount, "30000");
+  assert.equal(payment.redirectUrl, "https://qr.nspk.ru/AD101028KN4N4NCC8TL8AP6SAC0UF8CI");
+});
+
+test("parsePayment принимает и плоский ответ из документации", () => {
+  const payment = parsePayment({ uuid: "u-1", status: "SUCCESS", amount: "100000" });
+  assert.equal(payment.uuid, "u-1");
+  assert.equal(payment.status, "SUCCESS");
+  assert.throws(() => parsePayment({ success: true, data: { status: "WAT" } }));
 });
 
 test("verifyWebhookSignature принимает hex и base64, отклоняет чужую подпись", () => {

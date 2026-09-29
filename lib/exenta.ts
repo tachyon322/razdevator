@@ -59,11 +59,25 @@ export function isPaymentStatus(value: unknown): value is PaymentStatus {
   return STATUSES.includes(value as PaymentStatus);
 }
 
-function parsePayment(body: unknown): ProviderPayment {
-  const data = body as Record<string, unknown> | null;
+type Json = Record<string, unknown>;
+
+/**
+ * API отвечает в обёртке `{ success, data: { … } }` (в документации поля
+ * показаны без неё) — принимаем оба варианта.
+ */
+export function unwrapData(body: unknown): Json | null {
+  if (!body || typeof body !== "object") return null;
+  const data = (body as Json).data;
+  return data && typeof data === "object" ? (data as Json) : (body as Json);
+}
+
+export function parsePayment(body: unknown): ProviderPayment {
+  const data = unwrapData(body);
   const uuid = data?.uuid ?? data?.paymentUuid;
-  if (typeof uuid !== "string" || !isPaymentStatus(data?.status)) {
-    throw new ExentaError("Exenta вернула неожиданный ответ");
+  if (!data || typeof uuid !== "string" || !isPaymentStatus(data.status)) {
+    throw new ExentaError(
+      `Exenta вернула неожиданный ответ: ${JSON.stringify(body).slice(0, 300)}`,
+    );
   }
   return {
     uuid,
