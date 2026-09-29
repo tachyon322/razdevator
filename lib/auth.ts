@@ -1,5 +1,7 @@
 import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
+import { parseAffiliateCookies } from "@cashx/sdk";
+import { enqueueAttribution } from "./cashx";
 import { getDb } from "./db";
 
 export const auth = betterAuth({
@@ -44,6 +46,21 @@ export const auth = betterAuth({
         type: "date",
         required: false,
         input: false,
+      },
+    },
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        // Единая точка регистрации (форма и quick-auth): атрибуция партнёру
+        // берётся из cookie aff_ref / click_token, выставленных трекером.
+        after: async (user, ctx) => {
+          const headers = ctx?.request?.headers ?? ctx?.headers;
+          const { ref, clickToken } = parseAffiliateCookies(
+            headers?.get("cookie"),
+          );
+          enqueueAttribution(user.id, ref, clickToken);
+        },
       },
     },
   },

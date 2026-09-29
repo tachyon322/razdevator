@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Manrope, Unbounded } from "next/font/google";
+import { AffiliateTracker } from "./components/AffiliateTracker";
 import { QuickAuthModal } from "./components/QuickAuthModal";
 import "./globals.css";
 
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col bg-canvas text-ink">
         {children}
+        <AffiliateTracker />
         <QuickAuthModal />
       </body>
     </html>

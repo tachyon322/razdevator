@@ -29,3 +29,9 @@ create index if not exists "generation_asset_generationId_idx" on "generation_as
 create table if not exists "payment" ("id" text not null primary key, "userId" text not null references "user" ("id") on delete cascade, "providerUuid" text unique, "amountRub" integer not null, "creditRub" integer, "packId" text, "status" text not null check ("status" in ('CREATED','PENDING','SUCCESS','FAILED','CANCELLED')), "creditedAt" text, "createdAt" text not null, "updatedAt" text not null);
 
 create index if not exists "payment_userId_createdAt_idx" on "payment" ("userId", "createdAt" desc);
+
+-- --- Исходящие события партнёрки Cashx (outbox) ---
+
+create table if not exists "cashx_outbox" ("id" integer primary key autoincrement, "eventId" text not null unique, "payload" text not null, "status" text not null default 'pending' check ("status" in ('pending','sent','dead')), "attempts" integer not null default 0, "nextAttemptAt" text not null, "lastError" text, "createdAt" text not null);
+
+create index if not exists "cashx_outbox_due_idx" on "cashx_outbox" ("status", "nextAttemptAt");

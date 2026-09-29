@@ -109,6 +109,19 @@ CREATE TABLE IF NOT EXISTS "payment" (
 );
 
 CREATE INDEX IF NOT EXISTS "payment_userId_createdAt_idx" ON "payment" ("userId", "createdAt" DESC);
+
+CREATE TABLE IF NOT EXISTS "cashx_outbox" (
+  "id"            INTEGER PRIMARY KEY AUTOINCREMENT,
+  "eventId"       TEXT NOT NULL UNIQUE,
+  "payload"       TEXT NOT NULL,
+  "status"        TEXT NOT NULL DEFAULT 'pending' CHECK ("status" IN ('pending','sent','dead')),
+  "attempts"      INTEGER NOT NULL DEFAULT 0,
+  "nextAttemptAt" TEXT NOT NULL,
+  "lastError"     TEXT,
+  "createdAt"     TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS "cashx_outbox_due_idx" ON "cashx_outbox" ("status", "nextAttemptAt");
 `;
 
 interface GenerationRow {
@@ -662,7 +675,10 @@ export function setPaymentStatus(
  * и ровно один раз: вебхук и опрос статуса могут прийти одновременно.
  * Возвращает true, если зачисление произошло именно сейчас.
  */
-export function creditPayment(id: string): boolean {
+export function creditPayment(
+  id: string,
+  onCredited?: (payment: Payment) => void,
+): boolean {
   ensureSchema();
   const run = getDb().transaction((paymentId: string) => {
     const now = new Date().toISOString();
@@ -673,7 +689,67 @@ export function creditPayment(id: string): boolean {
     if (info.changes === 0) return false;
     const payment = getPayment(paymentId) as Payment;
     addBalance(payment.userId, paymentCreditRub(payment));
+    // В той же транзакции: зачисление и исходящее событие не расходятся.
+    onCredited?.(payment);
     return true;
   });
   return run(id);
+}
+
+export interface CashxOutboxRow {
+  id: number;
+  eventId: string;
+  payload: string;
+  attempts: number;
+}
+
+/** Кладёт событие партнёрки в очередь. Повтор того же eventId игнорируется. */
+export function enqueueCashxEvent(eventId: string, payload: unknown): void {
+  ensureSchema();
+  const now = new Date().toISOString();
+  stmt(
+    `INSERT OR IGNORE INTO "cashx_outbox" ("eventId", "payload", "nextAttemptAt", "createdAt")
+     VALUES (?, ?, ?, ?)`,
+  ).run(eventId, JSON.stringify(payload), now, now);
+}
+
+/**
+ * События, которым пора уходить, строго по порядку постановки: если самое
+ * раннее ещё ждёт повтора, более поздние (платёж) его не обгоняют.
+ */
+export function listDueCashxEvents(limit: number): CashxOutboxRow[] {
+  ensureSchema();
+  const now = new Date().toISOString();
+  const pending = stmt(
+    `SELECT "id", "eventId", "payload", "attempts", "nextAttemptAt" FROM "cashx_outbox"
+      WHERE "status" = 'pending' ORDER BY "id" LIMIT ?`,
+  ).all(limit) as (CashxOutboxRow & { nextAttemptAt: string })[];
+  const due: CashxOutboxRow[] = [];
+  for (const row of pending) {
+    if (row.nextAttemptAt > now) break;
+    due.push({
+      id: row.id,
+      eventId: row.eventId,
+      payload: row.payload,
+      attempts: row.attempts,
+    });
+  }
+  return due;
+}
+
+export function markCashxEventSent(id: number): void {
+  stmt(`UPDATE "cashx_outbox" SET "status" = 'sent', "lastError" = NULL WHERE "id" = ?`).run(id);
+}
+
+/** Откладывает повтор; при `dead` больше не пытаемся. */
+export function markCashxEventFailed(
+  id: number,
+  error: string,
+  nextAttemptAt: Date,
+  dead: boolean,
+): void {
+  stmt(
+    `UPDATE "cashx_outbox" SET "attempts" = "attempts" + 1, "lastError" = ?,
+            "nextAttemptAt" = ?, "status" = ? WHERE "id" = ?`,
+  ).run(error.slice(0, 500), nextAttemptAt.toISOString(), dead ? "dead" : "pending", id);
 }

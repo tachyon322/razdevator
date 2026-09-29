@@ -33,7 +33,7 @@ function fail() {
   );
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const login = randomLogin();
     const password = randomPassword();
@@ -43,6 +43,7 @@ export async function POST() {
     try {
       response = await auth.api.signUpEmail({
         body: { email, password, name: login },
+        headers: request.headers, // cookie aff_ref / click_token для партнёрки
         asResponse: true,
       });
     } catch (error) {

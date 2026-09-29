@@ -16,6 +16,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # --- deps ---------------------------------------------------------------
 FROM base AS deps
 COPY package.json bun.lock ./
+COPY vendor ./vendor
 RUN bun install --frozen-lockfile
 
 # --- builder ------------------------------------------------------------

@@ -11,6 +11,7 @@ import {
   setPaymentStatus,
   type Payment,
 } from "./db";
+import { enqueueRevenue } from "./cashx";
 import { fetchPaymentStatus, rubToKopecks, type ProviderPayment } from "./exenta";
 
 /** Итоговые статусы: дальше с провайдером сверять нечего. */
@@ -40,7 +41,7 @@ export function applyProviderStatus(
       );
       return payment;
     }
-    if (creditPayment(payment.id)) {
+    if (creditPayment(payment.id, (paid) => enqueueRevenue(paid))) {
       console.info(
         `[payments] зачислено ${paymentCreditRub(payment)} ₽ пользователю ${payment.userId} (платёж ${payment.id}${payment.packId ? `, пакет ${payment.packId}` : ""})`,
       );
