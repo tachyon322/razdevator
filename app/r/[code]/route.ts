@@ -11,7 +11,7 @@ const MAX_AGE = 90 * 24 * 60 * 60;
  * случай, если Cashx вернёт без параметров.
  */
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ code: string }> },
 ) {
   const { code } = await params;
@@ -22,7 +22,8 @@ export async function GET(
   ).replace(/\/$/, "");
 
   if (!base || !CODE_RE.test(code)) {
-    return NextResponse.redirect(new URL("/", request.url), 302);
+    // Относительный Location: за прокси request.url указывает на внутренний адрес.
+    return new Response(null, { status: 302, headers: { Location: "/" } });
   }
 
   const response = NextResponse.redirect(
