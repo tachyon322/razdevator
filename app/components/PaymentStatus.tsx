@@ -19,10 +19,17 @@ function isFinal(status: Status): boolean {
 export function PaymentStatus({
   id,
   amountRub,
+  creditRub,
+  packName,
   initialStatus,
 }: {
   id: string;
+  /** Сколько платит покупатель. */
   amountRub: number;
+  /** Сколько зачисляется на баланс (у пакета — больше оплаченного). */
+  creditRub: number;
+  /** Название пакета; null — обычное пополнение. */
+  packName: string | null;
   initialStatus: Status;
 }) {
   const [status, setStatus] = useState<Status>(initialStatus);
@@ -69,14 +76,15 @@ export function PaymentStatus({
   }, [id, status]);
 
   const amount = formatPrice(amountRub);
+  const credit = formatPrice(creditRub);
 
   if (status === "SUCCESS") {
     return (
       <Card
         icon={<CheckIcon className="size-6" />}
         tone="success"
-        title="Баланс пополнен"
-        text={`Зачислили ${amount}. Можно генерировать.`}
+        title={packName ? `${packName} оплачен` : "Баланс пополнен"}
+        text={`На баланс зачислено ${credit}. Можно генерировать.`}
       >
         <PrimaryLink href="/create">К генерации</PrimaryLink>
       </Card>
@@ -89,9 +97,15 @@ export function PaymentStatus({
         icon={<CloseIcon className="size-6" />}
         tone="error"
         title={status === "CANCELLED" ? "Счёт отменён" : "Оплата не прошла"}
-        text={`Деньги не списаны. Пополнить баланс на ${amount} можно ещё раз — кнопкой с кошельком в шапке.`}
+        text={
+          packName
+            ? `Деньги не списаны. Купить «${packName}» можно ещё раз на странице цен.`
+            : `Деньги не списаны. Пополнить баланс на ${amount} можно ещё раз — кнопкой с кошельком в шапке.`
+        }
       >
-        <PrimaryLink href="/create">Вернуться в студию</PrimaryLink>
+        <PrimaryLink href={packName ? "/pricing" : "/create"}>
+          {packName ? "К ценам" : "Вернуться в студию"}
+        </PrimaryLink>
       </Card>
     );
   }
@@ -104,7 +118,7 @@ export function PaymentStatus({
       text={
         timedOut
           ? "Банк ещё не подтвердил платёж. Если деньги списались, баланс пополнится автоматически — обновите страницу позже или напишите в поддержку."
-          : `Счёт на ${amount}. Обычно подтверждение приходит за несколько секунд — страница обновится сама.`
+          : `${packName ? `${packName}, счёт` : "Счёт"} на ${amount}. Обычно подтверждение приходит за несколько секунд — страница обновится сама.`
       }
     >
       <Link

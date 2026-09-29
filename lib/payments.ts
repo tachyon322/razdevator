@@ -7,6 +7,7 @@
 import {
   creditPayment,
   getPayment,
+  paymentCreditRub,
   setPaymentStatus,
   type Payment,
 } from "./db";
@@ -41,7 +42,7 @@ export function applyProviderStatus(
     }
     if (creditPayment(payment.id)) {
       console.info(
-        `[payments] зачислено ${payment.amountRub} ₽ пользователю ${payment.userId} (платёж ${payment.id})`,
+        `[payments] зачислено ${paymentCreditRub(payment)} ₽ пользователю ${payment.userId} (платёж ${payment.id}${payment.packId ? `, пакет ${payment.packId}` : ""})`,
       );
     }
   } else if (provider.status !== payment.status) {

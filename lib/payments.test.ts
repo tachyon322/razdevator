@@ -14,6 +14,7 @@ const { parsePayment, rubToKopecks, verifyWebhookSignature } = await import(
   "./exenta"
 );
 const { applyProviderStatus } = await import("./payments");
+const { PACKS, packCreditRub } = await import("./plans");
 const sqlite = db.getDb();
 
 sqlite.exec(
@@ -26,12 +27,35 @@ function seed(id: string, balanceRub = 0) {
     .run(id, "free", 0, balanceRub);
 }
 
+// Таблица `payment` в том виде, как она уже создана на проде (без
+// creditRub/packId), со счётом, который ещё ждёт оплаты. ensureSchema()
+// должна добавить колонки, не трогая строку.
+seed("u-legacy", 0);
+sqlite.exec(`
+  CREATE TABLE "payment" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
+    "providerUuid" TEXT UNIQUE,
+    "amountRub" INTEGER NOT NULL,
+    "status" TEXT NOT NULL CHECK ("status" IN ('CREATED','PENDING','SUCCESS','FAILED','CANCELLED')),
+    "creditedAt" TEXT,
+    "createdAt" TEXT NOT NULL,
+    "updatedAt" TEXT NOT NULL
+  );
+  INSERT INTO "payment" VALUES ('p-legacy','u-legacy','uuid-legacy',700,'PENDING',NULL,'2026-09-29T00:00:00.000Z','2026-09-29T00:00:00.000Z');
+`);
+
 function balance(id: string): number {
   return db.getUserUsage(id)?.balanceRub ?? 0;
 }
 
-function pendingPayment(userId: string, amountRub: number, uuid: string) {
-  const payment = db.createPayment(userId, amountRub);
+function pendingPayment(
+  userId: string,
+  amountRub: number,
+  uuid: string,
+  extra: { creditRub?: number; packId?: string } = {},
+) {
+  const payment = db.createPayment({ userId, amountRub, ...extra });
   db.attachProviderPayment(payment.id, uuid, "PENDING");
   return db.getPayment(payment.id)!;
 }
@@ -42,6 +66,40 @@ after(() => {
   } catch {
     // временную папку в любом случае уберёт ОС
   }
+});
+
+test("миграция: старая таблица payment получает колонки, старый счёт зачисляет amountRub", () => {
+  const legacy = db.getPayment("p-legacy")!;
+  assert.equal(legacy.creditRub, null);
+  assert.equal(legacy.packId, null);
+  assert.equal(db.paymentCreditRub(legacy), 700);
+
+  applyProviderStatus(legacy, { uuid: "uuid-legacy", status: "SUCCESS", amount: "70000" });
+  assert.equal(balance("u-legacy"), 700);
+});
+
+test("packCreditRub: пакет зачисляет номинал по поштучной цене", () => {
+  const byId = Object.fromEntries(PACKS.map((pack) => [pack.id, packCreditRub(pack)]));
+  assert.deepEqual(byId, { start: 2500, studio: 6750 });
+});
+
+test("пакет: платим цену пакета, на баланс зачисляется номинал", () => {
+  seed("u-pack", 50);
+  const pack = PACKS[0];
+  const payment = pendingPayment("u-pack", pack.price, "uuid-pack", {
+    creditRub: packCreditRub(pack),
+    packId: pack.id,
+  });
+  assert.equal(payment.packId, pack.id);
+
+  // Провайдер подтверждает оплаченную сумму — цену пакета, а не номинал.
+  const paid = applyProviderStatus(payment, {
+    uuid: "uuid-pack",
+    status: "SUCCESS",
+    amount: rubToKopecks(pack.price),
+  });
+  assert.equal(paid.status, "SUCCESS");
+  assert.equal(balance("u-pack"), 50 + packCreditRub(pack));
 });
 
 test("rubToKopecks переводит рубли в копейки строкой", () => {
@@ -145,8 +203,8 @@ test("countOpenPayments считает только неоплаченные с�
   seed("u-open", 0);
   const since = new Date(Date.now() - 60_000).toISOString();
   pendingPayment("u-open", 300, "uuid-open-1");
-  const failed = db.createPayment("u-open", 300);
+  const failed = db.createPayment({ userId: "u-open", amountRub: 300 });
   db.setPaymentStatus(failed.id, "FAILED");
-  db.createPayment("u-open", 300);
+  db.createPayment({ userId: "u-open", amountRub: 300 });
   assert.equal(db.countOpenPayments("u-open", since), 2);
 });

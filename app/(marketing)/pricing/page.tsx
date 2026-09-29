@@ -5,7 +5,8 @@ import {
   ImageIcon,
   VideoIcon,
 } from "../../components/icons";
-import { PACKS, PRICES, formatPrice } from "@/lib/plans";
+import { BuyPackButton } from "../../components/BuyPackButton";
+import { PACKS, PRICES, formatPrice, packCreditRub } from "@/lib/plans";
 
 export const metadata = {
   title: "Цены — Раздеватор",
@@ -155,17 +156,19 @@ export default function PricingPage() {
                   ))}
                 </ul>
 
-                <Link
-                  href="/create"
+                <p className="mt-6 text-xs text-faint">
+                  На баланс зачислится {formatPrice(packCreditRub(pack))}
+                </p>
+                <BuyPackButton
+                  packId={pack.id}
+                  label={pack.cta}
                   className={[
-                    "mt-7 inline-flex h-12 items-center justify-center rounded-full text-sm font-semibold transition-transform hover:-translate-y-0.5",
+                    "mt-2 inline-flex h-12 w-full items-center justify-center rounded-full text-sm font-semibold transition-transform hover:-translate-y-0.5",
                     pack.highlighted
                       ? "bg-[linear-gradient(135deg,#e11d48,#9f1239)] text-white shadow-[0_14px_40px_-16px_rgba(225,29,72,0.9)]"
                       : "border border-line-strong text-ink hover:bg-panel-hover",
                   ].join(" ")}
-                >
-                  {pack.cta}
-                </Link>
+                />
               </div>
             ))}
           </div>

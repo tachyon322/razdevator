@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS "payment" (
   "userId"       TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   "providerUuid" TEXT UNIQUE,
   "amountRub"    INTEGER NOT NULL,
+  "creditRub"    INTEGER,
+  "packId"       TEXT,
   "status"       TEXT NOT NULL CHECK ("status" IN ('CREATED','PENDING','SUCCESS','FAILED','CANCELLED')),
   "creditedAt"   TEXT,
   "createdAt"    TEXT NOT NULL,
@@ -180,6 +182,27 @@ function ensureUserBillingColumn(instance: DatabaseType): void {
   instance.exec(`ALTER TABLE "user" ADD COLUMN "balanceRub" integer`);
 }
 
+/**
+ * Колонки, добавленные в `payment` после первого релиза оплаты: сколько
+ * зачислить (для пакетов больше оплаченного) и какой пакет куплен.
+ * Только ADD COLUMN — существующие строки не меняются.
+ */
+function ensurePaymentColumns(instance: DatabaseType): void {
+  const columns = new Set(
+    (
+      instance.prepare(`PRAGMA table_info("payment")`).all() as {
+        name: string;
+      }[]
+    ).map((column) => column.name),
+  );
+  if (!columns.has("creditRub")) {
+    instance.exec(`ALTER TABLE "payment" ADD COLUMN "creditRub" INTEGER`);
+  }
+  if (!columns.has("packId")) {
+    instance.exec(`ALTER TABLE "payment" ADD COLUMN "packId" TEXT`);
+  }
+}
+
 const statements = new Map<string, Statement>();
 const MAX_STATEMENTS = 100;
 
@@ -205,6 +228,7 @@ export function ensureSchema(): void {
   if (schemaReady) return;
   const instance = getDb();
   instance.exec(SCHEMA);
+  ensurePaymentColumns(instance);
   schemaReady = true;
 
   // Незавершённые задачи от прошлого процесса (старше 30 мин) помечаем
@@ -536,22 +560,47 @@ export interface Payment {
   id: string;
   userId: string;
   providerUuid: string | null;
+  /** Сколько платит покупатель. */
   amountRub: number;
+  /** Сколько зачислить на баланс; NULL у старых записей — значит amountRub. */
+  creditRub: number | null;
+  /** Купленный пакет (NULL — обычное пополнение). */
+  packId: string | null;
   status: PaymentStatus;
   creditedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
+/** Сумма к зачислению на баланс. */
+export function paymentCreditRub(payment: Payment): number {
+  return payment.creditRub ?? payment.amountRub;
+}
+
+export interface CreatePaymentInput {
+  userId: string;
+  amountRub: number;
+  creditRub?: number;
+  packId?: string | null;
+}
+
 /** Черновик платежа: создаётся до запроса к провайдеру, чтобы знать URL возврата. */
-export function createPayment(userId: string, amountRub: number): Payment {
+export function createPayment(input: CreatePaymentInput): Payment {
   ensureSchema();
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   stmt(
-    `INSERT INTO "payment" ("id","userId","providerUuid","amountRub","status","creditedAt","createdAt","updatedAt")
-       VALUES (?,?,NULL,?,'CREATED',NULL,?,?)`,
-  ).run(id, userId, amountRub, now, now);
+    `INSERT INTO "payment" ("id","userId","providerUuid","amountRub","creditRub","packId","status","creditedAt","createdAt","updatedAt")
+       VALUES (?,?,NULL,?,?,?,'CREATED',NULL,?,?)`,
+  ).run(
+    id,
+    input.userId,
+    input.amountRub,
+    input.creditRub ?? input.amountRub,
+    input.packId ?? null,
+    now,
+    now,
+  );
   return getPayment(id) as Payment;
 }
 
@@ -623,7 +672,7 @@ export function creditPayment(id: string): boolean {
     ).run(now, now, paymentId);
     if (info.changes === 0) return false;
     const payment = getPayment(paymentId) as Payment;
-    addBalance(payment.userId, payment.amountRub);
+    addBalance(payment.userId, paymentCreditRub(payment));
     return true;
   });
   return run(id);

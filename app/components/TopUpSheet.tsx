@@ -10,6 +10,7 @@ import {
   isValidTopUp,
 } from "@/lib/plans";
 import { CloseIcon } from "./icons";
+import { startPayment } from "./start-payment";
 
 /** Список сумм пополнения: выбор суммы создаёт счёт и уводит на оплату. */
 export function TopUpOptions({
@@ -31,20 +32,8 @@ export function TopUpOptions({
     setPending(amount);
     setError(null);
     try {
-      const res = await fetch("/api/payments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        redirectUrl?: string;
-        message?: string;
-      };
-      if (!res.ok || !data.redirectUrl) {
-        throw new Error(data.message ?? "Не удалось создать счёт. Попробуйте позже.");
-      }
-      // Остаёмся в состоянии загрузки до ухода со страницы.
-      window.location.assign(data.redirectUrl);
+      // При успехе остаёмся в состоянии загрузки до ухода со страницы.
+      await startPayment({ amount });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось создать счёт.");
       setPending(null);

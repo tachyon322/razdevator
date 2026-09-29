@@ -1,7 +1,8 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { getPayment } from "@/lib/db";
+import { getPayment, paymentCreditRub } from "@/lib/db";
+import { findPack } from "@/lib/plans";
 import { PaymentStatus } from "../../../components/PaymentStatus";
 
 export const metadata = {
@@ -28,6 +29,8 @@ export default async function PaymentPage({
         <PaymentStatus
           id={payment.id}
           amountRub={payment.amountRub}
+          creditRub={paymentCreditRub(payment)}
+          packName={findPack(payment.packId)?.name ?? null}
           initialStatus={payment.status}
         />
       </div>

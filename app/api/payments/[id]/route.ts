@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getPayment } from "@/lib/db";
+import { getPayment, paymentCreditRub } from "@/lib/db";
 import { reconcilePayment } from "@/lib/payments";
 
 export const runtime = "nodejs";
@@ -35,6 +35,8 @@ export async function GET(
   return NextResponse.json({
     id: payment.id,
     amountRub: payment.amountRub,
+    creditRub: paymentCreditRub(payment),
+    packId: payment.packId,
     status: payment.status,
   });
 }

@@ -57,6 +57,18 @@ export const PACKS: Pack[] = [
   },
 ];
 
+/**
+ * Сколько рублей зачисляется на баланс за пакет: его содержимое по поштучной
+ * цене. Разница с ценой пакета — и есть «выгода» на карточке.
+ */
+export function packCreditRub(pack: Pack): number {
+  return pack.images * PRICES.image + pack.videos * PRICES.video;
+}
+
+export function findPack(id: unknown): Pack | null {
+  return PACKS.find((pack) => pack.id === id) ?? null;
+}
+
 /** Пресеты быстрого пополнения баланса (в рублях). */
 export const TOPUPS = [500, 1000, 2000, 5000] as const;
 

@@ -9,7 +9,14 @@ import {
   setPaymentStatus,
 } from "@/lib/db";
 import { createInvoice } from "@/lib/exenta";
-import { MAX_TOPUP, MIN_TOPUP, formatPrice, isValidTopUp } from "@/lib/plans";
+import {
+  MAX_TOPUP,
+  MIN_TOPUP,
+  findPack,
+  formatPrice,
+  isValidTopUp,
+  packCreditRub,
+} from "@/lib/plans";
 
 export const runtime = "nodejs";
 
@@ -34,7 +41,10 @@ function siteUrl(request: NextRequest): string {
   );
 }
 
-/** Создаёт счёт на пополнение баланса и возвращает ссылку на оплату. */
+/**
+ * Создаёт счёт и возвращает ссылку на оплату. Тело: `{ amount }` — пополнение
+ * на сумму, или `{ packId }` — покупка пакета из /pricing.
+ */
 export async function POST(request: NextRequest) {
   const requestHeaders = await headers();
   const session = await auth.api.getSession({ headers: requestHeaders });
@@ -42,20 +52,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "Требуется авторизация" }, { status: 401 });
   }
 
-  let amount: number;
+  let body: { amount?: unknown; packId?: unknown };
   try {
-    const body = (await request.json()) as { amount?: unknown };
-    amount = Number(body.amount);
+    body = (await request.json()) as typeof body;
   } catch {
     return NextResponse.json({ message: "Некорректный запрос" }, { status: 400 });
   }
-  if (!isValidTopUp(amount)) {
-    return NextResponse.json(
-      {
-        message: `Сумма пополнения — от ${formatPrice(MIN_TOPUP)} до ${formatPrice(MAX_TOPUP)}`,
-      },
-      { status: 400 },
-    );
+
+  // Пакет: платим цену пакета, на баланс зачисляем его номинал.
+  // Обычное пополнение: платим и зачисляем одну и ту же сумму.
+  let amount: number;
+  let creditRub: number;
+  let packId: string | null = null;
+  if (body.packId !== undefined) {
+    const pack = findPack(body.packId);
+    if (!pack) {
+      return NextResponse.json({ message: "Пакет не найден" }, { status: 400 });
+    }
+    amount = pack.price;
+    creditRub = packCreditRub(pack);
+    packId = pack.id;
+  } else {
+    amount = Number(body.amount);
+    creditRub = amount;
+    if (!isValidTopUp(amount)) {
+      return NextResponse.json(
+        {
+          message: `Сумма пополнения — от ${formatPrice(MIN_TOPUP)} до ${formatPrice(MAX_TOPUP)}`,
+        },
+        { status: 400 },
+      );
+    }
   }
 
   const userId = session.user.id;
@@ -70,7 +97,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const payment = createPayment(userId, amount);
+  const payment = createPayment({ userId, amountRub: amount, creditRub, packId });
   const returnUrl = `${siteUrl(request)}/payment/${payment.id}`;
 
   try {
