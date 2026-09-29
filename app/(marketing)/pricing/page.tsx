@@ -6,6 +6,7 @@ import {
   VideoIcon,
 } from "../../components/icons";
 import { BuyPackButton } from "../../components/BuyPackButton";
+import { CreateOrTopUpButton } from "../../components/CreateOrTopUpButton";
 import { PACKS, PRICES, formatPrice, packCreditRub } from "@/lib/plans";
 
 export const metadata = {
@@ -98,12 +99,11 @@ export default function PricingPage() {
                 ))}
               </ul>
 
-              <Link
-                href="/create"
+              <CreateOrTopUpButton
+                price={item.price}
+                label={`Создать ${item.id === "video" ? "видео" : "фото"}`}
                 className="mt-7 inline-flex h-12 items-center justify-center rounded-full border border-line-strong text-sm font-semibold text-ink transition-colors hover:bg-panel-hover"
-              >
-                Создать {item.id === "video" ? "видео" : "фото"}
-              </Link>
+              />
             </div>
           ))}
         </div>

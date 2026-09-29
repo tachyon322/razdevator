@@ -130,13 +130,18 @@ export function TopUpOptions({
   );
 }
 
-/** Нижний лист с выбором суммы — для мобильного меню. */
+/**
+ * Нижний лист с выбором суммы — для мобильного меню. С `desktop` работает и
+ * на широких экранах: там это модальное окно по центру.
+ */
 export function TopUpSheet({
   balance,
   onClose,
+  desktop = false,
 }: {
   balance: number;
   onClose: () => void;
+  desktop?: boolean;
 }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -153,7 +158,7 @@ export function TopUpSheet({
 
   return (
     <div
-      className="fixed inset-0 z-[60] lg:hidden"
+      className={`fixed inset-0 z-[60] ${desktop ? "" : "lg:hidden"}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="topup-title"
@@ -164,7 +169,14 @@ export function TopUpSheet({
         onClick={onClose}
         className="absolute inset-0 bg-canvas/80 backdrop-blur-sm"
       />
-      <div className="absolute inset-x-0 bottom-0 mx-auto max-w-lg rounded-t-panel border-t border-line-strong bg-elevated p-5 pb-[calc(1.25rem_+_env(safe-area-inset-bottom,0px))] shadow-[0_-20px_60px_-20px_rgba(0,0,0,0.9)]">
+      <div
+        className={[
+          "absolute inset-x-0 bottom-0 mx-auto max-w-lg rounded-t-panel border-t border-line-strong bg-elevated p-5 pb-[calc(1.25rem_+_env(safe-area-inset-bottom,0px))] shadow-[0_-20px_60px_-20px_rgba(0,0,0,0.9)]",
+          desktop
+            ? "lg:inset-x-auto lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:w-96 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-card lg:border lg:pb-5"
+            : "",
+        ].join(" ")}
+      >
         <TopUpOptions balance={balance} onClose={onClose} />
       </div>
     </div>
