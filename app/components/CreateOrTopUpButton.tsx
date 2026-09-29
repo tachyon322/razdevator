@@ -42,7 +42,7 @@ export function CreateOrTopUpButton({
         Пополнить баланс
       </button>
       {open && (
-        <TopUpSheet balance={balance} onClose={() => setOpen(false)} desktop />
+        <TopUpSheet balance={balance} onClose={() => setOpen(false)} />
       )}
     </>
   );

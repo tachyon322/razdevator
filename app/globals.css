@@ -54,12 +54,6 @@
     outline: 2px solid var(--color-brand);
     outline-offset: 2px;
   }
-
-  /* Возрастные ворота: скрыты, если пользователь уже подтвердил 18+.
-     Атрибут ставит инлайн-скрипт до первой отрисовки — без мигания. */
-  html[data-age-verified="1"] [data-age-gate] {
-    display: none;
-  }
 }
 
 @utility container-page {
