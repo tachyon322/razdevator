@@ -23,3 +23,9 @@ create index if not exists "generation_userId_createdAt_idx" on "generation" ("u
 create index if not exists "generation_userId_favorite_createdAt_idx" on "generation" ("userId", "createdAt" desc) where "favorite" = 1;
 
 create index if not exists "generation_asset_generationId_idx" on "generation_asset" ("generationId");
+
+-- --- Платежи (пополнение баланса через Exenta Pay) ---
+
+create table if not exists "payment" ("id" text not null primary key, "userId" text not null references "user" ("id") on delete cascade, "providerUuid" text unique, "amountRub" integer not null, "status" text not null check ("status" in ('CREATED','PENDING','SUCCESS','FAILED','CANCELLED')), "creditedAt" text, "createdAt" text not null, "updatedAt" text not null);
+
+create index if not exists "payment_userId_createdAt_idx" on "payment" ("userId", "createdAt" desc);

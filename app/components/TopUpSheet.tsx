@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MIN_TOPUP, PRICES, TOPUPS, formatPrice } from "@/lib/plans";
+import {
+  MAX_TOPUP,
+  MIN_TOPUP,
+  PRICES,
+  TOPUPS,
+  formatPrice,
+  isValidTopUp,
+} from "@/lib/plans";
 import { CloseIcon } from "./icons";
 
-/** Список сумм пополнения и заглушка «оплата скоро». */
+/** Список сумм пополнения: выбор суммы создаёт счёт и уводит на оплату. */
 export function TopUpOptions({
   balance,
   onClose,
@@ -12,11 +19,37 @@ export function TopUpOptions({
   balance: number;
   onClose: () => void;
 }) {
-  const [chosen, setChosen] = useState<number | null>(null);
+  const [pending, setPending] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [custom, setCustom] = useState("");
   const customValue = Number(custom);
-  const customValid =
-    custom !== "" && Number.isFinite(customValue) && customValue >= MIN_TOPUP;
+  const customValid = custom !== "" && isValidTopUp(customValue);
+  const busy = pending !== null;
+
+  async function pay(amount: number) {
+    if (busy) return;
+    setPending(amount);
+    setError(null);
+    try {
+      const res = await fetch("/api/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        redirectUrl?: string;
+        message?: string;
+      };
+      if (!res.ok || !data.redirectUrl) {
+        throw new Error(data.message ?? "Не удалось создать счёт. Попробуйте позже.");
+      }
+      // Остаёмся в состоянии загрузки до ухода со страницы.
+      window.location.assign(data.redirectUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось создать счёт.");
+      setPending(null);
+    }
+  }
 
   return (
     <div>
@@ -44,78 +77,65 @@ export function TopUpOptions({
         </button>
       </div>
 
-      {chosen === null ? (
-        <>
-          <div className="mt-4 grid grid-cols-2 gap-2.5">
-            {TOPUPS.map((amount) => (
-              <button
-                key={amount}
-                type="button"
-                onClick={() => setChosen(amount)}
-                className="flex flex-col items-center gap-0.5 rounded-tile border border-line bg-panel px-3 py-3 text-center transition-colors hover:border-line-strong hover:bg-panel-hover"
-              >
-                <span className="font-display text-lg font-bold tracking-tight text-ink">
-                  {formatPrice(amount)}
-                </span>
-                <span className="text-xs text-faint">
-                  ≈ {Math.floor(amount / PRICES.image)} фото
-                </span>
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-2.5 flex items-center gap-2">
-            <div className="relative flex-1">
-              <input
-                value={custom}
-                onChange={(event) =>
-                  setCustom(event.target.value.replace(/\D/g, "").slice(0, 6))
-                }
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && customValid) {
-                    setChosen(customValue);
-                  }
-                }}
-                inputMode="numeric"
-                autoComplete="off"
-                aria-label="Своя сумма пополнения"
-                placeholder="Своя сумма"
-                className="h-11 w-full rounded-tile border border-line bg-panel px-3 pr-8 text-sm font-semibold text-ink transition-colors placeholder:font-normal placeholder:text-faint focus:border-line-strong focus:outline-none"
-              />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-faint">
-                ₽
-              </span>
-            </div>
-            <button
-              type="button"
-              disabled={!customValid}
-              onClick={() => setChosen(customValue)}
-              className="h-11 shrink-0 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-5 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
-            >
-              Пополнить
-            </button>
-          </div>
-          <p className="mt-1.5 text-xs text-faint">
-            Минимум {formatPrice(MIN_TOPUP)}
-          </p>
-        </>
-      ) : (
-        <div className="mt-4 rounded-tile border border-brand/40 bg-brand-soft px-4 py-4 text-center">
-          <p className="text-sm font-semibold text-ink">
-            Оплата скоро подключится
-          </p>
-          <p className="mt-1 text-xs leading-5 text-muted">
-            Мы уже подключаем оплату. Скоро можно будет пополнить баланс на{" "}
-            {formatPrice(chosen)}.
-          </p>
+      <div className="mt-4 grid grid-cols-2 gap-2.5">
+        {TOPUPS.map((amount) => (
           <button
+            key={amount}
             type="button"
-            onClick={() => setChosen(null)}
-            className="mt-3 text-xs font-semibold text-ink underline underline-offset-2"
+            disabled={busy}
+            onClick={() => void pay(amount)}
+            className="flex flex-col items-center gap-0.5 rounded-tile border border-line bg-panel px-3 py-3 text-center transition-colors hover:border-line-strong hover:bg-panel-hover disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Выбрать другую сумму
+            <span className="font-display text-lg font-bold tracking-tight text-ink">
+              {pending === amount ? "Создаём счёт…" : formatPrice(amount)}
+            </span>
+            <span className="text-xs text-faint">
+              ≈ {Math.floor(amount / PRICES.image)} фото
+            </span>
           </button>
+        ))}
+      </div>
+
+      <div className="mt-2.5 flex items-center gap-2">
+        <div className="relative flex-1">
+          <input
+            value={custom}
+            onChange={(event) =>
+              setCustom(event.target.value.replace(/\D/g, "").slice(0, 6))
+            }
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && customValid) {
+                void pay(customValue);
+              }
+            }}
+            disabled={busy}
+            inputMode="numeric"
+            autoComplete="off"
+            aria-label="Своя сумма пополнения"
+            placeholder="Своя сумма"
+            className="h-11 w-full rounded-tile border border-line bg-panel px-3 pr-8 text-sm font-semibold text-ink transition-colors placeholder:font-normal placeholder:text-faint focus:border-line-strong focus:outline-none"
+          />
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-faint">
+            ₽
+          </span>
         </div>
+        <button
+          type="button"
+          disabled={!customValid || busy}
+          onClick={() => void pay(customValue)}
+          className="h-11 shrink-0 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-5 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+        >
+          {busy && pending === customValue ? "…" : "Пополнить"}
+        </button>
+      </div>
+      <p className="mt-1.5 text-xs text-faint">
+        От {formatPrice(MIN_TOPUP)} до {formatPrice(MAX_TOPUP)} · оплата через СБП
+      </p>
+
+      {error && (
+        <p role="alert" className="mt-3 text-xs leading-5 text-brand">
+          {error}
+        </p>
       )}
     </div>
   );

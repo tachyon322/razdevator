@@ -63,6 +63,14 @@ export const TOPUPS = [500, 1000, 2000, 5000] as const;
 /** Минимальная сумма ручного пополнения баланса (в рублях). */
 export const MIN_TOPUP = 300;
 
+/** Максимальная сумма одного пополнения (в рублях). */
+export const MAX_TOPUP = 100_000;
+
+/** Проверка суммы пополнения: целые рубли в пределах [MIN_TOPUP, MAX_TOPUP]. */
+export function isValidTopUp(amount: number): boolean {
+  return Number.isInteger(amount) && amount >= MIN_TOPUP && amount <= MAX_TOPUP;
+}
+
 export function formatPrice(price: number): string {
   return `${price.toLocaleString("ru-RU")} ₽`;
 }

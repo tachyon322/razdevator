@@ -1,7 +1,7 @@
 /**
  * Прямой доступ к SQLite (`data/auth.db`, та же БД, что у better-auth).
  *
- * Таблицы `generation` / `generation_asset` создаются идемпотентно в
+ * Таблицы `generation` / `generation_asset` / `payment` создаются идемпотентно в
  * `ensureSchema()`. Схема продублирована в `docker/schema.sql` для контейнера.
  */
 
@@ -94,6 +94,19 @@ CREATE TABLE IF NOT EXISTS "generation_asset" (
 CREATE INDEX IF NOT EXISTS "generation_userId_createdAt_idx" ON "generation" ("userId", "createdAt" DESC);
 CREATE INDEX IF NOT EXISTS "generation_userId_favorite_createdAt_idx" ON "generation" ("userId", "createdAt" DESC) WHERE "favorite" = 1;
 CREATE INDEX IF NOT EXISTS "generation_asset_generationId_idx" ON "generation_asset" ("generationId");
+
+CREATE TABLE IF NOT EXISTS "payment" (
+  "id"           TEXT NOT NULL PRIMARY KEY,
+  "userId"       TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
+  "providerUuid" TEXT UNIQUE,
+  "amountRub"    INTEGER NOT NULL,
+  "status"       TEXT NOT NULL CHECK ("status" IN ('CREATED','PENDING','SUCCESS','FAILED','CANCELLED')),
+  "creditedAt"   TEXT,
+  "createdAt"    TEXT NOT NULL,
+  "updatedAt"    TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS "payment_userId_createdAt_idx" ON "payment" ("userId", "createdAt" DESC);
 `;
 
 interface GenerationRow {
@@ -501,11 +514,117 @@ export function deductBalance(userId: string, amount: number): boolean {
   return info.changes > 0;
 }
 
-/** Пополняет баланс. Используется для ручного зачисления и будущих вебхуков оплаты. */
+/** Пополняет баланс. Используется для ручного зачисления и оплаты (см. creditPayment). */
 export function addBalance(userId: string, amount: number): void {
   if (amount <= 0) return;
   ensureSchema();
   stmt(
     `UPDATE "user" SET "balanceRub" = COALESCE("balanceRub", 0) + ? WHERE "id" = ?`,
   ).run(amount, userId);
+}
+
+// --- Платежи (пополнение баланса через Exenta Pay) ---
+
+export type PaymentStatus =
+  | "CREATED"
+  | "PENDING"
+  | "SUCCESS"
+  | "FAILED"
+  | "CANCELLED";
+
+export interface Payment {
+  id: string;
+  userId: string;
+  providerUuid: string | null;
+  amountRub: number;
+  status: PaymentStatus;
+  creditedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Черновик платежа: создаётся до запроса к провайдеру, чтобы знать URL возврата. */
+export function createPayment(userId: string, amountRub: number): Payment {
+  ensureSchema();
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  stmt(
+    `INSERT INTO "payment" ("id","userId","providerUuid","amountRub","status","creditedAt","createdAt","updatedAt")
+       VALUES (?,?,NULL,?,'CREATED',NULL,?,?)`,
+  ).run(id, userId, amountRub, now, now);
+  return getPayment(id) as Payment;
+}
+
+export function getPayment(id: string): Payment | null {
+  ensureSchema();
+  return (
+    (stmt(`SELECT * FROM "payment" WHERE "id" = ?`).get(id) as
+      | Payment
+      | undefined) ?? null
+  );
+}
+
+export function getPaymentByProviderUuid(uuid: string): Payment | null {
+  ensureSchema();
+  return (
+    (stmt(`SELECT * FROM "payment" WHERE "providerUuid" = ?`).get(uuid) as
+      | Payment
+      | undefined) ?? null
+  );
+}
+
+/** Сколько неоплаченных счетов пользователь создал с момента `since` (ISO). */
+export function countOpenPayments(userId: string, since: string): number {
+  ensureSchema();
+  const row = stmt(
+    `SELECT COUNT(*) AS "count" FROM "payment"
+      WHERE "userId" = ? AND "status" IN ('CREATED','PENDING') AND "createdAt" >= ?`,
+  ).get(userId, since) as { count: number };
+  return row.count;
+}
+
+export function attachProviderPayment(
+  id: string,
+  providerUuid: string,
+  status: Exclude<PaymentStatus, "SUCCESS">,
+): void {
+  ensureSchema();
+  stmt(
+    `UPDATE "payment" SET "providerUuid" = ?, "status" = ?, "updatedAt" = ? WHERE "id" = ?`,
+  ).run(providerUuid, status, new Date().toISOString(), id);
+}
+
+/**
+ * Обновляет статус неоплаченного платежа. Оплаченный (SUCCESS) не трогаем:
+ * успех проводится только через creditPayment.
+ */
+export function setPaymentStatus(
+  id: string,
+  status: Exclude<PaymentStatus, "SUCCESS">,
+): void {
+  ensureSchema();
+  stmt(
+    `UPDATE "payment" SET "status" = ?, "updatedAt" = ? WHERE "id" = ? AND "status" <> 'SUCCESS'`,
+  ).run(status, new Date().toISOString(), id);
+}
+
+/**
+ * Помечает платёж оплаченным и зачисляет сумму на баланс — в одной транзакции
+ * и ровно один раз: вебхук и опрос статуса могут прийти одновременно.
+ * Возвращает true, если зачисление произошло именно сейчас.
+ */
+export function creditPayment(id: string): boolean {
+  ensureSchema();
+  const run = getDb().transaction((paymentId: string) => {
+    const now = new Date().toISOString();
+    const info = stmt(
+      `UPDATE "payment" SET "status" = 'SUCCESS', "creditedAt" = ?, "updatedAt" = ?
+        WHERE "id" = ? AND "creditedAt" IS NULL`,
+    ).run(now, now, paymentId);
+    if (info.changes === 0) return false;
+    const payment = getPayment(paymentId) as Payment;
+    addBalance(payment.userId, payment.amountRub);
+    return true;
+  });
+  return run(id);
 }
