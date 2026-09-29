@@ -21,7 +21,7 @@ import {
 } from "./presets";
 import type { GenerationDTO } from "@/lib/generation-dto";
 import { prepareImageUpload } from "@/lib/image-client";
-import { PRICES, formatPrice, type Billing } from "@/lib/plans";
+import { PRICES, formatPrice } from "@/lib/plans";
 import { refreshBalance } from "../balance-store";
 import { ArrowRightIcon, CameraIcon, SparkIcon } from "../icons";
 
@@ -44,14 +44,8 @@ function stageLabelFor(mode: StudioMode, progress: number): string {
 }
 
 export function PhotoStudio({
-  planName,
-  left: initialLeft,
-  limit,
   balance: initialBalance,
 }: {
-  planName: string;
-  left: number;
-  limit: number;
   balance: number;
 }) {
   const [mode, setMode] = useState<StudioMode>("image");
@@ -79,9 +73,8 @@ export function PhotoStudio({
   const [duration, setDuration] = useState(5);
   const [audio, setAudio] = useState(false);
 
-  const [left, setLeft] = useState(initialLeft);
   const [balance, setBalance] = useState(initialBalance);
-  const pendingBillingRef = useRef<Billing | null>(null);
+  const pendingCostRef = useRef<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [job, setJob] = useState<GenerationDTO | null>(null);
@@ -156,14 +149,10 @@ export function PhotoStudio({
         setJob(data);
         setFavorite(data.favorite);
         if (data.status === "succeeded") {
-          const billing = pendingBillingRef.current;
-          if (billing) {
-            if (billing.mode === "trial") {
-              setLeft((value) => Math.max(0, value - billing.units));
-            } else {
-              setBalance((value) => Math.max(0, value - billing.costRub));
-            }
-            pendingBillingRef.current = null;
+          const costRub = pendingCostRef.current;
+          if (costRub !== null) {
+            setBalance((value) => Math.max(0, value - costRub));
+            pendingCostRef.current = null;
             // Обновляем шапку/мобильное меню: баланс изменился на сервере.
             void refreshBalance();
           }
@@ -268,7 +257,7 @@ export function PhotoStudio({
 
   const switchMode = (next: StudioMode) => {
     if (next === mode) return;
-    pendingBillingRef.current = null;
+    pendingCostRef.current = null;
     setMode(next);
     setJob(null);
     setFavorite(false);
@@ -307,8 +296,8 @@ export function PhotoStudio({
         setStartError(data?.message ?? "Не удалось запустить генерацию.");
         return;
       }
-      const data = (await res.json()) as { id: string; billing?: Billing };
-      pendingBillingRef.current = data.billing ?? null;
+      const data = (await res.json()) as { id: string; costRub?: number };
+      pendingCostRef.current = data.costRub ?? null;
       setJob({
         id: data.id,
         kind: mode,
@@ -341,7 +330,7 @@ export function PhotoStudio({
 
   const reset = () => {
     prepareTokenRef.current += 1;
-    pendingBillingRef.current = null;
+    pendingCostRef.current = null;
     setPreparing(false);
     setPreview(null);
     setFile(null);
@@ -503,8 +492,6 @@ export function PhotoStudio({
                 onDuration={setDuration}
                 audio={audio}
                 onAudio={setAudio}
-                left={left}
-                limit={limit}
                 balance={balance}
                 busy={busy}
                 onGenerate={startGeneration}
@@ -648,13 +635,9 @@ export function PhotoStudio({
             </dl>
 
             <div className="rounded-tile border border-line bg-elevated px-4 py-3">
-              <p className="text-xs text-faint">Доступ</p>
-              <p className="mt-0.5 text-sm font-semibold text-ink">{planName}</p>
-              <p className="mt-0.5 text-xs text-muted">
-                Осталось {left} из {limit} генераций
-              </p>
-              <p className="mt-1 text-xs text-faint">
-                Баланс: {formatPrice(balance)}
+              <p className="text-xs text-faint">Баланс</p>
+              <p className="mt-0.5 text-sm font-semibold text-ink">
+                {formatPrice(balance)}
               </p>
               <p className="mt-1 text-xs text-faint">
                 Фото {formatPrice(PRICES.image)} · Видео {formatPrice(PRICES.video)}

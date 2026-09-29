@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "./Logo";
 import { AuthButtons } from "./AuthButtons";
-import { BalanceButton } from "./BalanceButton";
+import { BalanceButton, MobileBalance } from "./BalanceButton";
 import { CloseIcon, MenuIcon } from "./icons";
 
 const NAV = [
@@ -81,26 +81,31 @@ export function Navbar() {
           })}
         </nav>
 
-        <div className="hidden lg:flex items-center gap-2">
-          <BalanceButton />
-          <AuthButtons />
-          <Link
-            href="/create"
-            className="inline-flex h-10 items-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-5 text-sm font-semibold text-white shadow-[0_10px_34px_-12px_rgba(225,29,72,0.8)] transition-transform hover:-translate-y-0.5"
-          >
-            Создать фото
-          </Link>
-        </div>
+        <div className="flex items-center gap-2">
+          {/* Мобильный баланс — вплотную слева от бургер-меню */}
+          <MobileBalance />
 
-        <button
-          type="button"
-          onClick={toggleMenu}
-          aria-label={open ? "Закрыть меню" : "Открыть меню"}
-          aria-expanded={open}
-          className="grid size-11 place-items-center rounded-tile border border-line text-ink transition-colors hover:bg-panel-hover lg:hidden"
-        >
-          {open ? <CloseIcon className="size-5" /> : <MenuIcon className="size-5" />}
-        </button>
+          <div className="hidden lg:flex items-center gap-2">
+            <BalanceButton />
+            <AuthButtons />
+            <Link
+              href="/create"
+              className="inline-flex h-10 items-center gap-2 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-5 text-sm font-semibold text-white shadow-[0_10px_34px_-12px_rgba(225,29,72,0.8)] transition-transform hover:-translate-y-0.5"
+            >
+              Создать фото
+            </Link>
+          </div>
+
+          <button
+            type="button"
+            onClick={toggleMenu}
+            aria-label={open ? "Закрыть меню" : "Открыть меню"}
+            aria-expanded={open}
+            className="grid size-11 place-items-center rounded-tile border border-line text-ink transition-colors hover:bg-panel-hover lg:hidden"
+          >
+            {open ? <CloseIcon className="size-5" /> : <MenuIcon className="size-5" />}
+          </button>
+        </div>
       </div>
 
       {open && (

@@ -10,13 +10,7 @@ import {
   putObject,
 } from "@/lib/storage";
 import { createGeneration, getUserUsage } from "@/lib/db";
-import {
-  TRIAL,
-  formatPrice,
-  generationCostRub,
-  resolveBilling,
-  type Billing,
-} from "@/lib/plans";
+import { canAfford, formatPrice, generationCostRub } from "@/lib/plans";
 import { imageModel, videoModel } from "@/lib/nanogpt";
 import {
   assessAge,
@@ -179,21 +173,13 @@ export async function POST(request: Request) {
     }
   }
 
-  // Оплата: сначала бесплатные пробные генерации, затем деньги с баланса.
+  // Оплата: только с баланса — бесплатных пробных генераций нет.
   // Данные читаем свежими, в обход cookie-кеша сессии.
   const usage = getUserUsage(session.user.id);
-  const used = usage?.generationsUsed ?? 0;
   const balance = usage?.balanceRub ?? 0;
-  const trialLeft = Math.max(TRIAL.limit - used, 0);
+  const costRub = generationCostRub(kind, count);
 
-  const billing: Billing | null = resolveBilling({
-    kind,
-    count,
-    trialLeft,
-    balance,
-  });
-  if (!billing) {
-    const costRub = generationCostRub(kind, count);
+  if (!canAfford(balance, costRub)) {
     return NextResponse.json(
       {
         message: `Недостаточно средств: нужно ${formatPrice(costRub)}, на балансе ${formatPrice(balance)}. Пополните баланс, чтобы продолжить.`,
@@ -211,7 +197,7 @@ export async function POST(request: Request) {
       selections,
       keepFace,
       ratio,
-      billing,
+      costRub,
       ...(kind === "image"
         ? { count, resolution }
         : { resolution, duration, audio }),
@@ -237,14 +223,14 @@ export async function POST(request: Request) {
       count,
       duration,
       audio,
-      billing,
+      costRub,
       sourceDataUrl,
     };
 
     after(() => processGeneration(job));
 
     return NextResponse.json(
-      { id: generation.id, status: "pending", billing },
+      { id: generation.id, status: "pending", costRub },
       { status: 202 },
     );
   } catch (error) {

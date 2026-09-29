@@ -6,10 +6,9 @@ export interface BalanceState {
   /** `loading` — ещё не знаем; `guest` — не авторизован; `authed` — есть сессия. */
   status: "loading" | "guest" | "authed";
   balance: number;
-  trialLeft: number;
 }
 
-const INITIAL: BalanceState = { status: "loading", balance: 0, trialLeft: 0 };
+const INITIAL: BalanceState = { status: "loading", balance: 0 };
 
 let state: BalanceState = INITIAL;
 const listeners = new Set<() => void>();
@@ -28,18 +27,14 @@ export function refreshBalance(): Promise<void> {
     try {
       const res = await fetch("/api/me", { cache: "no-store" });
       if (res.status === 401) {
-        setState({ status: "guest", balance: 0, trialLeft: 0 });
+        setState({ status: "guest", balance: 0 });
         return;
       }
       if (!res.ok) return;
-      const data = (await res.json()) as {
-        balanceRub?: number;
-        trialLeft?: number;
-      };
+      const data = (await res.json()) as { balanceRub?: number };
       setState({
         status: "authed",
         balance: data.balanceRub ?? 0,
-        trialLeft: data.trialLeft ?? 0,
       });
     } catch {
       // сеть/сервер недоступны — оставляем прежнее состояние

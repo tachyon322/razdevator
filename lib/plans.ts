@@ -20,12 +20,6 @@ export const PRICES = {
   video: 250,
 } as const;
 
-/** Бесплатный пробный доступ: сколько генераций даём сразу после регистрации. */
-export const TRIAL = {
-  name: "Пробный доступ",
-  limit: 3,
-} as const;
-
 /** Паки со скидкой относительно поштучной цены. */
 export const PACKS: Pack[] = [
   {
@@ -83,47 +77,9 @@ export function generationCostRub(
 }
 
 /**
- * Как списывается генерация: сначала бесплатные пробные, затем деньги с баланса.
- * Решение принимается в /api/generate и передаётся в фоновую обработку.
+ * Хватает ли баланса на запрос. Решение принимается в /api/generate и
+ * передаётся в фоновую обработку.
  */
-export interface Billing {
-  mode: "trial" | "balance";
-  /** Сколько единиц пробного лимита списать (0 при оплате деньгами). */
-  units: number;
-  /** Сколько рублей списать с баланса (0 для пробной генерации). */
-  costRub: number;
-}
-
-/**
- * Решает, чем оплатить запрос: пробным лимитом, деньгами с баланса или
- * отказать. Возвращает `null`, если не хватает ни пробных генераций, ни денег.
- */
-export function resolveBilling(input: {
-  kind: "image" | "video";
-  count: number;
-  /** Сколько единиц пробного лимита осталось. */
-  trialLeft: number;
-  /** Баланс в рублях. */
-  balance: number;
-}): Billing | null {
-  const units = generationWeight(input.kind, input.count);
-  if (input.trialLeft >= units) {
-    return { mode: "trial", units, costRub: 0 };
-  }
-  const costRub = generationCostRub(input.kind, input.count);
-  if (input.balance >= costRub) {
-    return { mode: "balance", units: 0, costRub };
-  }
-  return null;
-}
-
-/** Сколько единиц пробного лимита списывает одна генерация. */
-export const GENERATION_WEIGHTS = { image: 1, video: 3 } as const;
-
-export function generationWeight(
-  kind: "image" | "video",
-  count = 1,
-): number {
-  if (kind === "video") return GENERATION_WEIGHTS.video;
-  return GENERATION_WEIGHTS.image * Math.max(1, count);
+export function canAfford(balance: number, costRub: number): boolean {
+  return balance >= costRub;
 }

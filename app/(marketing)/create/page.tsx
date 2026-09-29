@@ -2,7 +2,6 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getUserUsage } from "@/lib/db";
-import { TRIAL } from "@/lib/plans";
 import { PhotoStudio } from "../../components/create/PhotoStudio";
 
 export const metadata = {
@@ -16,8 +15,6 @@ export default async function CreatePage() {
   if (!session) redirect("/login?next=/create");
 
   const usage = getUserUsage(session.user.id);
-  const used = usage?.generationsUsed ?? 0;
-  const left = Math.max(TRIAL.limit - used, 0);
   const balance = usage?.balanceRub ?? 0;
 
   return (
@@ -33,12 +30,7 @@ export default async function CreatePage() {
             </p>
           </div>
 
-          <PhotoStudio
-            planName={TRIAL.name}
-            left={left}
-            limit={TRIAL.limit}
-            balance={balance}
-          />
+          <PhotoStudio balance={balance} />
         </div>
       </div>
     </main>

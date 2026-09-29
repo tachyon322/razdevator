@@ -4,17 +4,14 @@ import {
   MIN_TOPUP,
   PRICES,
   TOPUPS,
-  TRIAL,
+  canAfford,
   formatPrice,
   generationCostRub,
-  generationWeight,
-  resolveBilling,
 } from "./plans";
 
-test("цены и пробный лимит заданы ожидаемо", () => {
+test("цены заданы ожидаемо", () => {
   assert.equal(PRICES.image, 100);
   assert.equal(PRICES.video, 250);
-  assert.equal(TRIAL.limit, 3);
 });
 
 test("generationCostRub: фото — за кадр, видео — фиксированно", () => {
@@ -28,13 +25,6 @@ test("generationCostRub: фото — за кадр, видео — фиксир
 test("generationCostRub: некорректное количество считается как 1 кадр", () => {
   assert.equal(generationCostRub("image", 0), 100);
   assert.equal(generationCostRub("image", -3), 100);
-});
-
-test("generationWeight: видео весит 3, фото — по кадру", () => {
-  assert.equal(generationWeight("image", 1), 1);
-  assert.equal(generationWeight("image", 4), 4);
-  assert.equal(generationWeight("video", 1), 3);
-  assert.equal(generationWeight("video", 4), 3);
 });
 
 test("TOPUPS: пресеты пополнения по возрастанию", () => {
@@ -52,49 +42,22 @@ test("formatPrice: рубли с разделителем разрядов", () 
   assert.equal(formatPrice(5000).replace(/\s/g, " "), "5 000 ₽");
 });
 
-test("resolveBilling: пробный лимит покрывает — генерация бесплатна", () => {
-  assert.deepEqual(
-    resolveBilling({ kind: "image", count: 1, trialLeft: 3, balance: 0 }),
-    { mode: "trial", units: 1, costRub: 0 },
-  );
-  assert.deepEqual(
-    resolveBilling({ kind: "video", count: 1, trialLeft: 3, balance: 0 }),
-    { mode: "trial", units: 3, costRub: 0 },
-  );
+test("canAfford: генерация проходит, только если баланса хватает", () => {
+  assert.equal(canAfford(PRICES.image, PRICES.image), true);
+  assert.equal(canAfford(PRICES.image - 1, PRICES.image), false);
+  assert.equal(canAfford(0, PRICES.image), false);
+  assert.equal(canAfford(250, 250), true);
+  assert.equal(canAfford(249, 250), false);
 });
 
-test("resolveBilling: пробный не хватает, но денег достаточно — баланс", () => {
-  assert.deepEqual(
-    resolveBilling({ kind: "image", count: 1, trialLeft: 0, balance: 100 }),
-    { mode: "balance", units: 0, costRub: 100 },
-  );
-  assert.deepEqual(
-    resolveBilling({ kind: "video", count: 1, trialLeft: 2, balance: 250 }),
-    { mode: "balance", units: 0, costRub: 250 },
-  );
+test("canAfford: на два фото нужно 200 ₽", () => {
+  const cost = generationCostRub("image", 2);
+  assert.equal(cost, 200);
+  assert.equal(canAfford(200, cost), true);
+  assert.equal(canAfford(199, cost), false);
 });
 
-test("resolveBilling: на 2 фото остатка пробного не хватает — списываем 200 ₽", () => {
-  assert.deepEqual(
-    resolveBilling({ kind: "image", count: 2, trialLeft: 1, balance: 200 }),
-    { mode: "balance", units: 0, costRub: 200 },
-  );
-});
-
-test("resolveBilling: не хватает ни пробных, ни денег — null", () => {
-  assert.equal(
-    resolveBilling({ kind: "image", count: 1, trialLeft: 0, balance: 50 }),
-    null,
-  );
-  assert.equal(
-    resolveBilling({ kind: "video", count: 1, trialLeft: 0, balance: 200 }),
-    null,
-  );
-});
-
-test("resolveBilling: ровно хватает денег — разрешаем", () => {
-  assert.deepEqual(
-    resolveBilling({ kind: "video", count: 1, trialLeft: 0, balance: 250 }),
-    { mode: "balance", units: 0, costRub: 250 },
-  );
+test("canAfford: видео стоит фиксированно, независимо от длительности", () => {
+  assert.equal(canAfford(250, generationCostRub("video", 4)), true);
+  assert.equal(canAfford(249, generationCostRub("video", 1)), false);
 });

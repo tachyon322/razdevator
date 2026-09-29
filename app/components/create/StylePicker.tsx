@@ -33,8 +33,6 @@ export function StylePicker({
   onDuration,
   audio,
   onAudio,
-  left,
-  limit,
   balance,
   busy,
   onGenerate,
@@ -54,8 +52,6 @@ export function StylePicker({
   onDuration: (d: number) => void;
   audio: boolean;
   onAudio: (v: boolean) => void;
-  left: number;
-  limit: number;
   balance: number;
   busy: boolean;
   onGenerate: () => void;
@@ -69,11 +65,8 @@ export function StylePicker({
   const allSelected = requiredCategories.every((c) =>
     hasSelection(selections[c.id]),
   );
-  const required = mode === "video" ? 3 : count;
   const costRub = mode === "video" ? PRICES.video : count * PRICES.image;
-  const trialCovers = left >= required;
-  const willCharge = !trialCovers && balance >= costRub;
-  const outOfLimit = !trialCovers && !willCharge;
+  const outOfLimit = balance < costRub;
   const missing = requiredCategories
     .filter((c) => !hasSelection(selections[c.id]))
     .map((c) => c.label.toLowerCase());
@@ -285,19 +278,12 @@ export function StylePicker({
         )}
       </div>
 
-      {/* Лимит + генерация */}
+      {/* Цена и генерация */}
       <div className="flex flex-col gap-3 rounded-card border border-line bg-panel p-5">
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm text-muted">Выбрано параметров</span>
           <span className="text-sm font-semibold text-ink">
             {selectedCount} из {STYLE_CATEGORIES.length}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-sm text-muted">Пробный доступ</span>
-          <span className="text-sm font-semibold text-ink">
-            Осталось {left} из {limit}
           </span>
         </div>
 
@@ -308,16 +294,17 @@ export function StylePicker({
           </span>
         </div>
 
-        {mode === "video" && (
-          <p className="rounded-tile border border-line bg-elevated px-4 py-3 text-xs text-muted">
-            Видео — {formatPrice(PRICES.video)} или 3 пробные генерации.
-          </p>
-        )}
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-muted">Спишется с баланса</span>
+          <span className="text-sm font-semibold text-ink">
+            {formatPrice(costRub)}
+          </span>
+        </div>
 
-        {willCharge && (
+        {!outOfLimit && (
           <p className="rounded-tile border border-line bg-elevated px-4 py-3 text-xs text-muted">
-            Пробный доступ израсходован. Спишется {formatPrice(costRub)} с
-            баланса (остаток {formatPrice(balance)}).
+            После списания останется{" "}
+            {formatPrice(Math.max(0, balance - costRub))}.
           </p>
         )}
 

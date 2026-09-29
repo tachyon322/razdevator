@@ -5,12 +5,12 @@ import {
   ImageIcon,
   VideoIcon,
 } from "../../components/icons";
-import { PACKS, PRICES, TRIAL, formatPrice } from "@/lib/plans";
+import { PACKS, PRICES, formatPrice } from "@/lib/plans";
 
 export const metadata = {
   title: "Цены — Раздеватор",
   description:
-    "Фото — 100 ₽, видео — 250 ₽ за генерацию. Пакеты за 2000 ₽ и 5000 ₽ со скидкой. Первые 3 генерации бесплатно.",
+    "Фото — 100 ₽, видео — 250 ₽ за генерацию. Пакеты за 2000 ₽ и 5000 ₽ со скидкой. Оплата с баланса, без подписки.",
 };
 
 const PER_ITEM = [
@@ -171,10 +171,10 @@ export default function PricingPage() {
           </div>
         </div>
 
-        {/* Пробный доступ */}
+        {/* Оплата с баланса */}
         <div className="mx-auto mt-10 max-w-4xl rounded-panel border border-line bg-elevated px-6 py-5 text-center text-sm text-muted">
-          Начните бесплатно: {TRIAL.limit} пробные генерации доступны сразу после
-          регистрации, без оплаты.
+          Оплата с баланса: пополните его на нужную сумму и платите только за
+          фактические генерации — лимитов и подписок нет.
         </div>
 
         <ul className="mx-auto mt-10 grid max-w-4xl gap-3 sm:grid-cols-3">
@@ -195,7 +195,7 @@ export default function PricingPage() {
               Не уверены, что выбрать?
             </h2>
             <p className="mt-2 text-sm text-muted">
-              Начните с пробных генераций — пакет можно купить позже.
+              Пополните баланс и генерируйте — пакет можно взять позже.
             </p>
           </div>
           <Link

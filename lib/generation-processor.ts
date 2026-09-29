@@ -23,12 +23,9 @@ import {
   updateGeneration,
   type GenerationKind,
 } from "./db";
-import type { Billing } from "./plans";
 import { buildImagePrompt, buildVideoPrompt, type Selections } from "./prompt";
 import { buildGenerationKey, ensureBucket, putObject } from "./storage";
 
-/** Сколько единиц лимита списывает видео. */
-export const VIDEO_LIMIT_COST = 3;
 /** Таймаут ожидания готового видео (мс). */
 const VIDEO_TIMEOUT_MS = 10 * 60 * 1000;
 const VIDEO_POLL_MS = 5000;
@@ -47,24 +44,20 @@ export interface GenerationJob {
   /** Только для video. */
   duration?: number;
   audio?: boolean;
-  /** Как списать генерацию: пробный лимит или деньги с баланса. */
-  billing: Billing;
+  /** Сколько рублей списать с баланса после успешной генерации. */
+  costRub: number;
   /** Исходное фото как data URL (держится в памяти на время генерации). */
   sourceDataUrl: string;
 }
 
 /** Применяет списание только после успешной генерации. Экспортируется для тестов. */
-export function applyBilling(job: GenerationJob, actualUnits: number): void {
-  const { billing } = job;
-  if (billing.mode === "balance") {
-    if (billing.costRub > 0 && !deductBalance(job.userId, billing.costRub)) {
-      console.error(
-        `[generation:${job.generationId}] не удалось списать ${billing.costRub} ₽ с баланса`,
-      );
-    }
-    return;
+export function applyBilling(job: GenerationJob): void {
+  if (job.costRub > 0 && !deductBalance(job.userId, job.costRub)) {
+    console.error(
+      `[generation:${job.generationId}] не удалось списать ${job.costRub} ₽ с баланса`,
+    );
   }
-  incrementGenerationsUsed(job.userId, billing.units || actualUnits);
+  incrementGenerationsUsed(job.userId, 1);
 }
 
 function clampCount(value: unknown): number {
@@ -134,7 +127,7 @@ async function processImage(job: GenerationJob): Promise<void> {
     status: "succeeded",
     costUsd: result.costUsd ?? null,
   });
-  applyBilling(job, result.images.length);
+  applyBilling(job);
 }
 
 async function processVideo(job: GenerationJob): Promise<void> {
@@ -171,7 +164,7 @@ async function processVideo(job: GenerationJob): Promise<void> {
   });
 
   updateGeneration(job.generationId, { status: "succeeded" });
-  applyBilling(job, VIDEO_LIMIT_COST);
+  applyBilling(job);
 }
 
 async function pollVideo(runId: string): Promise<string> {

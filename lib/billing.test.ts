@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GenerationJob } from "./generation-processor";
-import type { Billing } from "./plans";
 
 // Отдельная временная БД: db.ts читает DATA_DIR при первом обращении, поэтому
 // переменную нужно выставить до импорта модуля.
@@ -34,7 +33,7 @@ function user(id: string) {
     .get(id) as { generationsUsed: number; balanceRub: number };
 }
 
-function job(userId: string, billing: Billing): GenerationJob {
+function job(userId: string, costRub: number): GenerationJob {
   return {
     generationId: `${userId}-gen`,
     userId,
@@ -43,7 +42,7 @@ function job(userId: string, billing: Billing): GenerationJob {
     keepFace: true,
     resolution: "1k",
     ratio: "3:4",
-    billing,
+    costRub,
     sourceDataUrl: "",
   } as unknown as GenerationJob;
 }
@@ -81,26 +80,26 @@ test("deductBalance не уводит баланс в минус", () => {
   assert.equal(user("u-guard").balanceRub, 100);
 });
 
-test("applyBilling (trial) увеличивает счётчик и не трогает баланс", () => {
-  seed("u-trial", 0, 500);
-  applyBilling(job("u-trial", { mode: "trial", units: 3, costRub: 0 }), 3);
-  assert.deepEqual(user("u-trial"), { generationsUsed: 3, balanceRub: 500 });
+test("applyBilling списывает деньги с баланса и считает генерацию", () => {
+  seed("u-balance", 0, 500);
+  applyBilling(job("u-balance", 250));
+  assert.deepEqual(user("u-balance"), { generationsUsed: 1, balanceRub: 250 });
 });
 
-test("applyBilling (balance) списывает деньги и не трогает счётчик", () => {
-  seed("u-balance", 3, 500);
-  applyBilling(job("u-balance", { mode: "balance", units: 0, costRub: 250 }), 1);
-  assert.deepEqual(user("u-balance"), { generationsUsed: 3, balanceRub: 250 });
-});
-
-test("applyBilling (balance) при нехватке денег не уводит баланс в минус", () => {
-  seed("u-poor", 3, 100);
+test("applyBilling при нехватке денег не уводит баланс в минус", () => {
+  seed("u-poor", 0, 100);
   const original = console.error;
   console.error = () => {};
   try {
-    applyBilling(job("u-poor", { mode: "balance", units: 0, costRub: 250 }), 1);
+    applyBilling(job("u-poor", 250));
   } finally {
     console.error = original;
   }
-  assert.equal(user("u-poor").balanceRub, 100);
+  assert.deepEqual(user("u-poor"), { generationsUsed: 1, balanceRub: 100 });
+});
+
+test("applyBilling без стоимости только считает генерацию", () => {
+  seed("u-zero", 0, 0);
+  applyBilling(job("u-zero", 0));
+  assert.deepEqual(user("u-zero"), { generationsUsed: 1, balanceRub: 0 });
 });
