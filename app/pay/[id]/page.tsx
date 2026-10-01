@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getGatewayPayment, getPayment, paymentCreditRub } from "@/lib/db";
 import { findPack } from "@/lib/plans";
@@ -17,9 +17,11 @@ export const metadata: Metadata = {
 
 /**
  * Единый адрес возврата после оплаты (`/pay/<id>`) — и для счетов внешних
- * проектов, и для собственных пополнений. Внешнему покупателю показываем
- * нейтральную заглушку без ссылок, своему пользователю — привычный статус
- * пополнения (по сессии владельца).
+ * проектов, и для собственных пополнений. Ссылка обязана открываться у любого:
+ * владелец счёта видит привычный статус пополнения, все остальные (покупатель
+ * внешнего проекта, чужой или вышедший пользователь) — нейтральную заглушку без
+ * данных и ссылок. Ни 404, ни редиректа на вход: счёт из кабинета провайдера
+ * можно открыть в любом браузере.
  */
 export default async function PayPage({
   params,
@@ -42,18 +44,22 @@ export default async function PayPage({
   if (!payment) notFound();
 
   const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) redirect(`/login?next=/pay/${encodeURIComponent(payment.id)}`);
-  if (payment.userId !== session.user.id) notFound();
+  const mine = Boolean(session && payment.userId === session.user.id);
 
   return (
     <Shell>
-      <PaymentStatus
-        id={payment.id}
-        amountRub={payment.amountRub}
-        creditRub={paymentCreditRub(payment)}
-        packName={findPack(payment.packId)?.name ?? null}
-        initialStatus={payment.status}
-      />
+      {mine ? (
+        <PaymentStatus
+          id={payment.id}
+          amountRub={payment.amountRub}
+          creditRub={paymentCreditRub(payment)}
+          packName={findPack(payment.packId)?.name ?? null}
+          initialStatus={payment.status}
+        />
+      ) : (
+        <GatewayReturn />
+      )}
+      <Wordmark />
     </Shell>
   );
 }
