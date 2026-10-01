@@ -20,7 +20,7 @@ const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
   sameSite: "lax",
-  path: "/admin",
+  path: "/adminlitgame43144",
 } as const;
 
 export interface LoginState {
@@ -62,13 +62,13 @@ export async function login(
     ...COOKIE_OPTIONS,
     maxAge: ADMIN_SESSION_TTL_SEC,
   });
-  redirect("/admin");
+  redirect("/adminlitgame43144");
 }
 
 export async function logout(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.set(ADMIN_COOKIE, "", { ...COOKIE_OPTIONS, maxAge: 0 });
-  redirect("/admin/login");
+  redirect("/adminlitgame43144/login");
 }
 
 /** Переключатель витрины. Форма шлёт `key` и новое значение `value` ("1"/"0"). */
@@ -78,5 +78,5 @@ export async function updateSetting(formData: FormData): Promise<void> {
   if (!isSettingKey(key)) return;
   setSiteSetting(key, formData.get("value") === "1");
   revalidatePath("/pricing");
-  revalidatePath("/admin");
+  revalidatePath("/adminlitgame43144");
 }

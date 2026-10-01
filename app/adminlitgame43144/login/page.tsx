@@ -5,7 +5,7 @@ import { LoginForm } from "./LoginForm";
 
 export default async function AdminLoginPage() {
   if (!adminPassword()) notFound();
-  if (await isAdmin()) redirect("/admin");
+  if (await isAdmin()) redirect("/adminlitgame43144");
 
   return (
     <main className="flex flex-1 items-center justify-center p-4">

@@ -12,6 +12,6 @@ export const metadata: Metadata = {
  */
 export const dynamic = "force-dynamic";
 
-export default function AdminRootLayout({ children }: LayoutProps<"/admin">) {
+export default function AdminRootLayout({ children }: LayoutProps<"/adminlitgame43144">) {
   return children;
 }

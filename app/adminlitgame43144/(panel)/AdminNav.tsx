@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const ITEMS = [
-  { href: "/admin", label: "Витрина" },
-  { href: "/admin/users", label: "Пользователи" },
+  { href: "/adminlitgame43144", label: "Витрина" },
+  { href: "/adminlitgame43144/users", label: "Пользователи" },
 ];
 
 export function AdminNav() {

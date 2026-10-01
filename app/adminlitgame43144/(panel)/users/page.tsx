@@ -30,7 +30,7 @@ function formatDate(value: string): string {
 
 export default async function AdminUsersPage({
   searchParams,
-}: PageProps<"/admin/users">) {
+}: PageProps<"/adminlitgame43144/users">) {
   await requireAdmin();
 
   const params = await searchParams;
@@ -58,7 +58,7 @@ export default async function AdminUsersPage({
     const nextPage = patch.page ?? 1;
     if (nextPage > 1) query.set("page", String(nextPage));
     const qs = query.toString();
-    return qs ? `/admin/users?${qs}` : "/admin/users";
+    return qs ? `/adminlitgame43144/users?${qs}` : "/adminlitgame43144/users";
   };
 
   const stats = [
@@ -85,7 +85,7 @@ export default async function AdminUsersPage({
       </dl>
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <form action="/admin/users" className="flex gap-2">
+        <form action="/adminlitgame43144/users" className="flex gap-2">
           {sort !== "balance" && <input type="hidden" name="sort" value={sort} />}
           <input
             type="search"

@@ -14,5 +14,5 @@ export async function isAdmin(): Promise<boolean> {
  */
 export async function requireAdmin(): Promise<void> {
   if (!adminPassword()) notFound();
-  if (!(await isAdmin())) redirect("/admin/login");
+  if (!(await isAdmin())) redirect("/adminlitgame43144/login");
 }

@@ -11,7 +11,7 @@ export default async function AdminPanelLayout({ children }: { children: React.R
       <header className="border-b border-line bg-elevated">
         <div className="container-page flex h-16 items-center justify-between gap-4">
           <div className="flex items-center gap-6">
-            <Link href="/admin" className="font-display text-base font-bold tracking-tight text-ink">
+            <Link href="/adminlitgame43144" className="font-display text-base font-bold tracking-tight text-ink">
               Админка
             </Link>
             <AdminNav />
