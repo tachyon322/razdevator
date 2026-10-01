@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { getPaymentByProviderUuid } from "@/lib/db";
+import { getGatewayPaymentByProviderUuid, getPaymentByProviderUuid } from "@/lib/db";
 import {
   fetchPaymentStatus,
   unwrapData,
   verifyWebhookSignature,
 } from "@/lib/exenta";
+import { applyGatewayProviderStatus } from "@/lib/gateway-payments";
 import { applyProviderStatus } from "@/lib/payments";
 
 export const runtime = "nodejs";
@@ -40,19 +41,34 @@ export async function POST(request: Request) {
   }
 
   const payment = getPaymentByProviderUuid(uuid);
-  if (!payment) {
+  if (payment) {
+    if (payment.creditedAt) return NextResponse.json({ ok: true });
+
+    try {
+      const provider = await fetchPaymentStatus(uuid);
+      applyProviderStatus(payment, provider);
+    } catch (error) {
+      // 5xx — пусть провайдер повторит; страница возврата тоже досверит.
+      console.error(`[payments] вебхук ${uuid}: сверка не удалась:`, error);
+      return NextResponse.json({ message: "Temporary error" }, { status: 502 });
+    }
+
+    return NextResponse.json({ ok: true });
+  }
+
+  // Счёт платёжного шлюза внешнего проекта: результат уходит проекту колбэком.
+  const gatewayPayment = getGatewayPaymentByProviderUuid(uuid);
+  if (!gatewayPayment) {
     // Не наш счёт — подтверждаем, чтобы провайдер не повторял доставку.
     console.warn(`[payments] вебхук для неизвестного платежа ${uuid}`);
     return NextResponse.json({ ok: true });
   }
-  if (payment.creditedAt) return NextResponse.json({ ok: true });
 
   try {
     const provider = await fetchPaymentStatus(uuid);
-    applyProviderStatus(payment, provider);
+    applyGatewayProviderStatus(gatewayPayment, provider);
   } catch (error) {
-    // 5xx — пусть провайдер повторит; страница возврата тоже досверит.
-    console.error(`[payments] вебхук ${uuid}: сверка не удалась:`, error);
+    console.error(`[payments] вебхук шлюза ${uuid}: сверка не удалась:`, error);
     return NextResponse.json({ message: "Temporary error" }, { status: 502 });
   }
 

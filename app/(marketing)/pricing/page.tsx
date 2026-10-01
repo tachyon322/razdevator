@@ -8,6 +8,10 @@ import {
 import { BuyPackButton } from "../../components/BuyPackButton";
 import { CreateOrTopUpButton } from "../../components/CreateOrTopUpButton";
 import { PACKS, PRICES, formatPrice, packCreditRub } from "@/lib/plans";
+import { customTopUpVisible, getSiteSettings } from "@/lib/settings";
+
+// Витрина зависит от настроек админки — рендерим на каждый запрос.
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Цены — Раздеватор",
@@ -51,6 +55,10 @@ const NOTES = [
 ];
 
 export default function PricingPage() {
+  const settings = getSiteSettings();
+  const showPerItem = settings.showPerItemCards;
+  const customTopUp = customTopUpVisible(settings);
+
   return (
     <main className="flex-1 py-14 sm:py-20">
       <div className="container-page">
@@ -59,57 +67,65 @@ export default function PricingPage() {
             Цены
           </h1>
           <p className="mt-4 text-base leading-relaxed text-muted sm:text-lg">
-            Платите за результат: фото — {formatPrice(PRICES.image)}, видео —{" "}
-            {formatPrice(PRICES.video)}. А если генерируете много — берите пакет
-            со скидкой.
+            {showPerItem ? (
+              <>
+                Платите за результат: фото — {formatPrice(PRICES.image)}, видео —{" "}
+                {formatPrice(PRICES.video)}. А если генерируете много — берите
+                пакет со скидкой.
+              </>
+            ) : (
+              "Выберите пакет: на баланс зачислится больше, чем вы заплатите, а генерации спишутся с него по мере использования."
+            )}
           </p>
         </div>
 
         {/* Цена за одну генерацию */}
-        <div className="mx-auto mt-10 grid max-w-4xl gap-5 md:grid-cols-2">
-          {PER_ITEM.map((item) => (
-            <div
-              key={item.id}
-              className="flex flex-col rounded-card border border-line bg-panel p-6 sm:p-7"
-            >
-              <span className="grid size-11 place-items-center rounded-tile bg-brand-soft text-brand">
-                <item.icon className="size-5" />
-              </span>
-
-              <h2 className="mt-4 text-lg font-semibold text-ink">
-                {item.name}
-              </h2>
-
-              <p className="mt-3 flex items-baseline gap-2">
-                <span className="font-display text-3xl font-extrabold tracking-tight text-ink">
-                  {formatPrice(item.price)}
+        {showPerItem && (
+          <div className="mx-auto mt-10 grid max-w-4xl gap-5 md:grid-cols-2">
+            {PER_ITEM.map((item) => (
+              <div
+                key={item.id}
+                className="flex flex-col rounded-card border border-line bg-panel p-6 sm:p-7"
+              >
+                <span className="grid size-11 place-items-center rounded-tile bg-brand-soft text-brand">
+                  <item.icon className="size-5" />
                 </span>
-                <span className="text-sm text-faint">{item.note}</span>
-              </p>
 
-              <ul className="mt-6 flex flex-1 flex-col gap-3">
-                {item.features.map((feature) => (
-                  <li
-                    key={feature}
-                    className="flex items-start gap-2.5 text-sm text-muted"
-                  >
-                    <CheckIcon className="mt-0.5 size-4 shrink-0 text-brand" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
+                <h2 className="mt-4 text-lg font-semibold text-ink">
+                  {item.name}
+                </h2>
 
-              <CreateOrTopUpButton
-                price={item.price}
-                label={`Создать ${item.id === "video" ? "видео" : "фото"}`}
-                className="mt-7 inline-flex h-12 items-center justify-center rounded-full border border-line-strong text-sm font-semibold text-ink transition-colors hover:bg-panel-hover"
-              />
-            </div>
-          ))}
-        </div>
+                <p className="mt-3 flex items-baseline gap-2">
+                  <span className="font-display text-3xl font-extrabold tracking-tight text-ink">
+                    {formatPrice(item.price)}
+                  </span>
+                  <span className="text-sm text-faint">{item.note}</span>
+                </p>
+
+                <ul className="mt-6 flex flex-1 flex-col gap-3">
+                  {item.features.map((feature) => (
+                    <li
+                      key={feature}
+                      className="flex items-start gap-2.5 text-sm text-muted"
+                    >
+                      <CheckIcon className="mt-0.5 size-4 shrink-0 text-brand" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+
+                <CreateOrTopUpButton
+                  price={item.price}
+                  label={`Создать ${item.id === "video" ? "видео" : "фото"}`}
+                  className="mt-7 inline-flex h-12 items-center justify-center rounded-full border border-line-strong text-sm font-semibold text-ink transition-colors hover:bg-panel-hover"
+                />
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Паки */}
-        <div className="mx-auto mt-14 max-w-4xl">
+        <div className={`mx-auto max-w-4xl ${showPerItem ? "mt-14" : "mt-10"}`}>
           <h2 className="font-display text-xl font-bold tracking-tight text-ink sm:text-2xl">
             Пакеты со скидкой
           </h2>
@@ -176,8 +192,9 @@ export default function PricingPage() {
 
         {/* Оплата с баланса */}
         <div className="mx-auto mt-10 max-w-4xl rounded-panel border border-line bg-elevated px-6 py-5 text-center text-sm text-muted">
-          Оплата с баланса: пополните его на нужную сумму и платите только за
-          фактические генерации — лимитов и подписок нет.
+          {customTopUp
+            ? "Оплата с баланса: пополните его на нужную сумму и платите только за фактические генерации — лимитов и подписок нет."
+            : "Оплата с баланса: сумма пакета зачисляется на баланс, а генерации списываются с него по факту — лимитов и подписок нет."}
         </div>
 
         <ul className="mx-auto mt-10 grid max-w-4xl gap-3 sm:grid-cols-3">
@@ -198,7 +215,9 @@ export default function PricingPage() {
               Не уверены, что выбрать?
             </h2>
             <p className="mt-2 text-sm text-muted">
-              Пополните баланс и генерируйте — пакет можно взять позже.
+              {customTopUp
+                ? "Пополните баланс и генерируйте — пакет можно взять позже."
+                : "Ответы про пакеты, оплату и генерации — в разделе вопросов."}
             </p>
           </div>
           <Link

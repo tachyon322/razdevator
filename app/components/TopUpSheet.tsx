@@ -5,16 +5,127 @@ import { createPortal } from "react-dom";
 import {
   MAX_TOPUP,
   MIN_TOPUP,
+  PACKS,
   PRICES,
   TOPUPS,
   formatPrice,
   isValidTopUp,
+  packCreditRub,
 } from "@/lib/plans";
+import { useBalance } from "./balance-store";
+import { BuyPackButton } from "./BuyPackButton";
 import { CloseIcon } from "./icons";
 import { startPayment } from "./start-payment";
 
-/** Список сумм пополнения: выбор суммы создаёт счёт и уводит на оплату. */
+function SheetHeader({
+  title,
+  subtitle,
+  onClose,
+}: {
+  title: string;
+  subtitle: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <h2
+          id="topup-title"
+          className="font-display text-lg font-bold tracking-tight text-ink"
+        >
+          {title}
+        </h2>
+        <p className="mt-0.5 text-xs text-muted">{subtitle}</p>
+      </div>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Закрыть"
+        className="grid size-8 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-panel-hover hover:text-ink"
+      >
+        <CloseIcon className="size-4" />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Пополнение только пакетами — когда в админке выключены произвольные суммы.
+ * Карточки повторяют пакеты со страницы цен.
+ */
+function PackOptions({
+  balance,
+  onClose,
+}: {
+  balance: number;
+  onClose: () => void;
+}) {
+  return (
+    <div>
+      <SheetHeader
+        title="Пополнить баланс"
+        subtitle={
+          balance > 0
+            ? `Текущий баланс: ${formatPrice(balance)}`
+            : "Выберите пакет"
+        }
+        onClose={onClose}
+      />
+
+      <div className="mt-4 flex flex-col gap-2.5">
+        {PACKS.map((pack) => (
+          <div
+            key={pack.id}
+            className={[
+              "rounded-tile border bg-panel p-4",
+              pack.highlighted ? "border-brand/50" : "border-line",
+            ].join(" ")}
+          >
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-sm font-semibold text-ink">{pack.name}</span>
+              <span className="font-display text-lg font-bold tracking-tight text-ink">
+                {formatPrice(pack.price)}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-faint">
+              {pack.images} фото · {pack.videos} видео · на баланс{" "}
+              {formatPrice(packCreditRub(pack))}
+            </p>
+            <BuyPackButton
+              packId={pack.id}
+              label={pack.cta}
+              className={[
+                "mt-3 inline-flex h-10 w-full items-center justify-center rounded-full text-sm font-semibold transition-transform hover:-translate-y-0.5",
+                pack.highlighted
+                  ? "bg-[linear-gradient(135deg,#e11d48,#9f1239)] text-white"
+                  : "border border-line-strong text-ink hover:bg-panel-hover",
+              ].join(" ")}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Содержимое модалки пополнения: суммы на выбор или — если так настроено в
+ * админке — только пакеты.
+ */
 export function TopUpOptions({
+  balance,
+  onClose,
+}: {
+  balance: number;
+  onClose: () => void;
+}) {
+  const { customTopUp } = useBalance();
+  if (!customTopUp) return <PackOptions balance={balance} onClose={onClose} />;
+  return <AmountOptions balance={balance} onClose={onClose} />;
+}
+
+/** Список сумм пополнения: выбор суммы создаёт счёт и уводит на оплату. */
+function AmountOptions({
   balance,
   onClose,
 }: {
@@ -43,29 +154,15 @@ export function TopUpOptions({
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2
-            id="topup-title"
-            className="font-display text-lg font-bold tracking-tight text-ink"
-          >
-            Пополнить баланс
-          </h2>
-          <p className="mt-0.5 text-xs text-muted">
-            {balance > 0
-              ? `Текущий баланс: ${formatPrice(balance)}`
-              : "Выберите сумму пополнения"}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Закрыть"
-          className="grid size-8 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-panel-hover hover:text-ink"
-        >
-          <CloseIcon className="size-4" />
-        </button>
-      </div>
+      <SheetHeader
+        title="Пополнить баланс"
+        subtitle={
+          balance > 0
+            ? `Текущий баланс: ${formatPrice(balance)}`
+            : "Выберите сумму пополнения"
+        }
+        onClose={onClose}
+      />
 
       <div className="mt-4 grid grid-cols-2 gap-2.5">
         {TOPUPS.map((amount) => (

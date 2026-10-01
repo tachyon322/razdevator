@@ -9,6 +9,7 @@ import {
   setPaymentStatus,
 } from "@/lib/db";
 import { createInvoice } from "@/lib/exenta";
+import { getSiteSettings } from "@/lib/settings";
 import {
   MAX_TOPUP,
   MIN_TOPUP,
@@ -73,6 +74,13 @@ export async function POST(request: NextRequest) {
     creditRub = packCreditRub(pack);
     packId = pack.id;
   } else {
+    // Галочка в админке: пополнение только пакетами.
+    if (getSiteSettings().blockCustomTopUp) {
+      return NextResponse.json(
+        { message: "Пополнение на произвольную сумму недоступно — выберите пакет" },
+        { status: 403 },
+      );
+    }
     amount = Number(body.amount);
     creditRub = amount;
     if (!isValidTopUp(amount)) {

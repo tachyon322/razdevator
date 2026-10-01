@@ -35,3 +35,19 @@ create index if not exists "payment_userId_createdAt_idx" on "payment" ("userId"
 create table if not exists "cashx_outbox" ("id" integer primary key autoincrement, "eventId" text not null unique, "payload" text not null, "status" text not null default 'pending' check ("status" in ('pending','sent','dead')), "attempts" integer not null default 0, "nextAttemptAt" text not null, "lastError" text, "createdAt" text not null);
 
 create index if not exists "cashx_outbox_due_idx" on "cashx_outbox" ("status", "nextAttemptAt");
+
+-- --- Платёжный шлюз для внешних проектов (kazik) ---
+
+create table if not exists "gateway_payment" ("id" text not null primary key, "projectId" text not null, "externalId" text not null, "externalUserId" text, "purpose" text, "method" text, "amountRub" integer not null, "providerUuid" text unique, "redirectUrl" text, "returnUrl" text, "buyerIp" text, "status" text not null check ("status" in ('CREATED','PENDING','PAID','FAILED','CANCELED')), "paidAt" text, "createdAt" text not null, "updatedAt" text not null);
+
+create unique index if not exists "gateway_payment_project_external_idx" on "gateway_payment" ("projectId", "externalId");
+
+create index if not exists "gateway_payment_providerUuid_idx" on "gateway_payment" ("providerUuid");
+
+create table if not exists "gateway_outbox" ("id" integer primary key autoincrement, "eventId" text not null unique, "projectId" text not null, "paymentId" text not null, "payload" text not null, "status" text not null default 'pending' check ("status" in ('pending','sent','dead')), "attempts" integer not null default 0, "nextAttemptAt" text not null, "lastError" text, "createdAt" text not null);
+
+create index if not exists "gateway_outbox_due_idx" on "gateway_outbox" ("status", "nextAttemptAt");
+
+-- --- Настройки витрины (админка) ---
+
+create table if not exists "app_setting" ("key" text not null primary key, "value" text not null, "updatedAt" text not null);

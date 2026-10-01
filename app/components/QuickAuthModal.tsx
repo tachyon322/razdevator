@@ -19,7 +19,16 @@ const DISMISS_KEY = "razdevator.quickAuthPrompt";
 const DISMISS_EVENT = "razdevator:quickauth";
 
 function isAuthPath(pathname: string): boolean {
-  return pathname === "/login" || pathname === "/register";
+  // На странице оплаты внешнего проекта окно быстрого входа не показываем:
+  // покупатель пришёл из другого сервиса, регистрация здесь ему не нужна.
+  // В админке вход свой — по паролю.
+  return (
+    pathname === "/login" ||
+    pathname === "/register" ||
+    pathname.startsWith("/pay/") ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/gateway/")
+  );
 }
 
 function subscribeDismissed(callback: () => void) {

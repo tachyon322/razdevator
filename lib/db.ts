@@ -122,6 +122,48 @@ CREATE TABLE IF NOT EXISTS "cashx_outbox" (
 );
 
 CREATE INDEX IF NOT EXISTS "cashx_outbox_due_idx" ON "cashx_outbox" ("status", "nextAttemptAt");
+
+CREATE TABLE IF NOT EXISTS "gateway_payment" (
+  "id"             TEXT NOT NULL PRIMARY KEY,
+  "projectId"      TEXT NOT NULL,
+  "externalId"     TEXT NOT NULL,
+  "externalUserId" TEXT,
+  "purpose"        TEXT,
+  "method"         TEXT,
+  "amountRub"      INTEGER NOT NULL,
+  "providerUuid"   TEXT UNIQUE,
+  "redirectUrl"    TEXT,
+  "returnUrl"      TEXT,
+  "buyerIp"        TEXT,
+  "status"         TEXT NOT NULL CHECK ("status" IN ('CREATED','PENDING','PAID','FAILED','CANCELED')),
+  "paidAt"         TEXT,
+  "createdAt"      TEXT NOT NULL,
+  "updatedAt"      TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "gateway_payment_project_external_idx" ON "gateway_payment" ("projectId", "externalId");
+CREATE INDEX IF NOT EXISTS "gateway_payment_providerUuid_idx" ON "gateway_payment" ("providerUuid");
+
+CREATE TABLE IF NOT EXISTS "gateway_outbox" (
+  "id"            INTEGER PRIMARY KEY AUTOINCREMENT,
+  "eventId"       TEXT NOT NULL UNIQUE,
+  "projectId"     TEXT NOT NULL,
+  "paymentId"     TEXT NOT NULL,
+  "payload"       TEXT NOT NULL,
+  "status"        TEXT NOT NULL DEFAULT 'pending' CHECK ("status" IN ('pending','sent','dead')),
+  "attempts"      INTEGER NOT NULL DEFAULT 0,
+  "nextAttemptAt" TEXT NOT NULL,
+  "lastError"     TEXT,
+  "createdAt"     TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS "gateway_outbox_due_idx" ON "gateway_outbox" ("status", "nextAttemptAt");
+
+CREATE TABLE IF NOT EXISTS "app_setting" (
+  "key"       TEXT NOT NULL PRIMARY KEY,
+  "value"     TEXT NOT NULL,
+  "updatedAt" TEXT NOT NULL
+);
 `;
 
 interface GenerationRow {
@@ -752,4 +794,312 @@ export function markCashxEventFailed(
     `UPDATE "cashx_outbox" SET "attempts" = "attempts" + 1, "lastError" = ?,
             "nextAttemptAt" = ?, "status" = ? WHERE "id" = ?`,
   ).run(error.slice(0, 500), nextAttemptAt.toISOString(), dead ? "dead" : "pending", id);
+}
+
+// --- Платёжный шлюз для внешних проектов (см. lib/gateway.ts) ---
+
+export type GatewayPaymentStatus =
+  | "CREATED"
+  | "PENDING"
+  | "PAID"
+  | "FAILED"
+  | "CANCELED";
+
+export interface GatewayPayment {
+  id: string;
+  projectId: string;
+  /** Идентификатор платежа во внешнем проекте (ключ идемпотентности). */
+  externalId: string;
+  externalUserId: string | null;
+  purpose: string | null;
+  method: string | null;
+  amountRub: number;
+  /** uuid счёта в Exenta. */
+  providerUuid: string | null;
+  redirectUrl: string | null;
+  /** Куда вернуть покупателя с нашей страницы возврата. */
+  returnUrl: string | null;
+  buyerIp: string | null;
+  status: GatewayPaymentStatus;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateGatewayPaymentInput {
+  projectId: string;
+  externalId: string;
+  externalUserId?: string | null;
+  purpose?: string | null;
+  method?: string | null;
+  amountRub: number;
+  returnUrl?: string | null;
+  buyerIp?: string | null;
+}
+
+/** Черновик счёта шлюза: создаётся до запроса к Exenta (нужен id для return-токена). */
+export function createGatewayPayment(input: CreateGatewayPaymentInput): GatewayPayment {
+  ensureSchema();
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  stmt(
+    `INSERT INTO "gateway_payment"
+        ("id","projectId","externalId","externalUserId","purpose","method","amountRub","providerUuid","redirectUrl","returnUrl","buyerIp","status","paidAt","createdAt","updatedAt")
+       VALUES (?,?,?,?,?,?,?,NULL,NULL,?,?,'CREATED',NULL,?,?)`,
+  ).run(
+    id,
+    input.projectId,
+    input.externalId,
+    input.externalUserId ?? null,
+    input.purpose ?? null,
+    input.method ?? null,
+    input.amountRub,
+    input.returnUrl ?? null,
+    input.buyerIp ?? null,
+    now,
+    now,
+  );
+  return getGatewayPayment(id) as GatewayPayment;
+}
+
+export function getGatewayPayment(id: string): GatewayPayment | null {
+  ensureSchema();
+  return (
+    (stmt(`SELECT * FROM "gateway_payment" WHERE "id" = ?`).get(id) as
+      | GatewayPayment
+      | undefined) ?? null
+  );
+}
+
+/** Идемпотентность создания: повтор с тем же externalId возвращает тот же счёт. */
+export function getGatewayPaymentByExternalId(
+  projectId: string,
+  externalId: string,
+): GatewayPayment | null {
+  ensureSchema();
+  return (
+    (stmt(
+      `SELECT * FROM "gateway_payment" WHERE "projectId" = ? AND "externalId" = ?`,
+    ).get(projectId, externalId) as GatewayPayment | undefined) ?? null
+  );
+}
+
+export function getGatewayPaymentByProviderUuid(uuid: string): GatewayPayment | null {
+  ensureSchema();
+  return (
+    (stmt(`SELECT * FROM "gateway_payment" WHERE "providerUuid" = ?`).get(uuid) as
+      | GatewayPayment
+      | undefined) ?? null
+  );
+}
+
+/** Сколько незавершённых счетов проект создал с момента `since` (ISO). */
+export function countOpenGatewayPayments(projectId: string, since: string): number {
+  ensureSchema();
+  const row = stmt(
+    `SELECT COUNT(*) AS "count" FROM "gateway_payment"
+      WHERE "projectId" = ? AND "status" IN ('CREATED','PENDING') AND "createdAt" >= ?`,
+  ).get(projectId, since) as { count: number };
+  return row.count;
+}
+
+export function attachGatewayProvider(
+  id: string,
+  providerUuid: string,
+  redirectUrl: string,
+  status: Exclude<GatewayPaymentStatus, "PAID"> = "PENDING",
+): GatewayPayment {
+  ensureSchema();
+  stmt(
+    `UPDATE "gateway_payment" SET "providerUuid" = ?, "redirectUrl" = ?, "status" = ?, "updatedAt" = ?
+      WHERE "id" = ? AND "paidAt" IS NULL`,
+  ).run(providerUuid, redirectUrl, status, new Date().toISOString(), id);
+  return getGatewayPayment(id) as GatewayPayment;
+}
+
+/** Обновляет статус незавершённого счёта; оплаченный (PAID) не откатываем. */
+export function setGatewayPaymentStatus(
+  id: string,
+  status: Exclude<GatewayPaymentStatus, "PAID">,
+): void {
+  ensureSchema();
+  stmt(
+    `UPDATE "gateway_payment" SET "status" = ?, "updatedAt" = ? WHERE "id" = ? AND "paidAt" IS NULL`,
+  ).run(status, new Date().toISOString(), id);
+}
+
+/**
+ * Помечает счёт оплаченным ровно один раз (вебхук и опрос статуса могут
+ * прийти одновременно). Возвращает true, если переход случился именно сейчас.
+ */
+export function markGatewayPaid(id: string): boolean {
+  ensureSchema();
+  const now = new Date().toISOString();
+  const info = stmt(
+    `UPDATE "gateway_payment" SET "status" = 'PAID', "paidAt" = ?, "updatedAt" = ?
+      WHERE "id" = ? AND "paidAt" IS NULL`,
+  ).run(now, now, id);
+  return info.changes > 0;
+}
+
+export interface GatewayOutboxRow {
+  id: number;
+  eventId: string;
+  projectId: string;
+  paymentId: string;
+  payload: string;
+  attempts: number;
+}
+
+/** Ставит колбэк проекта в очередь. Повтор того же eventId игнорируется. */
+export function enqueueGatewayCallback(
+  eventId: string,
+  projectId: string,
+  paymentId: string,
+  payload: unknown,
+): void {
+  ensureSchema();
+  const now = new Date().toISOString();
+  stmt(
+    `INSERT OR IGNORE INTO "gateway_outbox" ("eventId","projectId","paymentId","payload","nextAttemptAt","createdAt")
+     VALUES (?,?,?,?,?,?)`,
+  ).run(eventId, projectId, paymentId, JSON.stringify(payload), now, now);
+}
+
+/** Колбэки, которым пора уходить, строго по порядку постановки. */
+export function listDueGatewayCallbacks(limit: number): GatewayOutboxRow[] {
+  ensureSchema();
+  const now = new Date().toISOString();
+  const pending = stmt(
+    `SELECT "id","eventId","projectId","paymentId","payload","attempts","nextAttemptAt" FROM "gateway_outbox"
+      WHERE "status" = 'pending' ORDER BY "id" LIMIT ?`,
+  ).all(limit) as (GatewayOutboxRow & { nextAttemptAt: string })[];
+  const due: GatewayOutboxRow[] = [];
+  for (const row of pending) {
+    if (row.nextAttemptAt > now) break;
+    due.push({
+      id: row.id,
+      eventId: row.eventId,
+      projectId: row.projectId,
+      paymentId: row.paymentId,
+      payload: row.payload,
+      attempts: row.attempts,
+    });
+  }
+  return due;
+}
+
+export function markGatewayCallbackSent(id: number): void {
+  ensureSchema();
+  stmt(`UPDATE "gateway_outbox" SET "status" = 'sent', "lastError" = NULL WHERE "id" = ?`).run(id);
+}
+
+export function markGatewayCallbackFailed(
+  id: number,
+  error: string,
+  nextAttemptAt: Date,
+  dead: boolean,
+): void {
+  ensureSchema();
+  stmt(
+    `UPDATE "gateway_outbox" SET "attempts" = "attempts" + 1, "lastError" = ?,
+            "nextAttemptAt" = ?, "status" = ? WHERE "id" = ?`,
+  ).run(error.slice(0, 500), nextAttemptAt.toISOString(), dead ? "dead" : "pending", id);
+}
+
+// --- Настройки витрины (админка) ---
+
+/** Все сохранённые настройки как `key → value`. Отсутствующие ключи — значения по умолчанию (см. lib/settings.ts). */
+export function getAppSettings(): Record<string, string> {
+  ensureSchema();
+  const rows = stmt(`SELECT "key", "value" FROM "app_setting"`).all() as {
+    key: string;
+    value: string;
+  }[];
+  return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+}
+
+export function setAppSetting(key: string, value: string): void {
+  ensureSchema();
+  stmt(
+    `INSERT INTO "app_setting" ("key", "value", "updatedAt") VALUES (?, ?, ?)
+       ON CONFLICT ("key") DO UPDATE SET "value" = excluded."value", "updatedAt" = excluded."updatedAt"`,
+  ).run(key, value, new Date().toISOString());
+}
+
+// --- Пользователи (админка) ---
+
+export type AdminUserSort = "balance" | "created";
+
+export interface AdminUserRow {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: string;
+  balanceRub: number;
+  generationsUsed: number;
+  /** Сумма успешно оплаченных счетов (то, что пользователь заплатил, а не зачислено). */
+  paidRub: number;
+}
+
+export interface AdminUsersSummary {
+  total: number;
+  totalBalanceRub: number;
+  withBalance: number;
+}
+
+/** Условие поиска по email/имени. `%` и `_` в запросе экранируются. */
+function adminUserFilter(search: string | null): { where: string; params: string[] } {
+  const query = search?.trim();
+  if (!query) return { where: "", params: [] };
+  const pattern = `%${query.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+  return {
+    where: `WHERE u."email" LIKE ? ESCAPE '\\' OR u."name" LIKE ? ESCAPE '\\'`,
+    params: [pattern, pattern],
+  };
+}
+
+export function listUsersForAdmin(options: {
+  search: string | null;
+  sort: AdminUserSort;
+  limit: number;
+  offset: number;
+}): AdminUserRow[] {
+  ensureSchema();
+  const { where, params } = adminUserFilter(options.search);
+  const order =
+    options.sort === "balance"
+      ? `"balanceRub" DESC, u."createdAt" DESC`
+      : `u."createdAt" DESC`;
+  return stmt(
+    `SELECT u."id", u."name", u."email", u."createdAt",
+            COALESCE(u."balanceRub", 0) AS "balanceRub",
+            COALESCE(u."generationsUsed", 0) AS "generationsUsed",
+            COALESCE((SELECT SUM(p."amountRub") FROM "payment" p
+                       WHERE p."userId" = u."id" AND p."status" = 'SUCCESS'), 0) AS "paidRub"
+       FROM "user" u
+       ${where}
+      ORDER BY ${order}, u."id"
+      LIMIT ? OFFSET ?`,
+  ).all(...params, options.limit, options.offset) as AdminUserRow[];
+}
+
+export function countUsersForAdmin(search: string | null): number {
+  ensureSchema();
+  const { where, params } = adminUserFilter(search);
+  const row = stmt(`SELECT COUNT(*) AS "count" FROM "user" u ${where}`).get(
+    ...params,
+  ) as { count: number };
+  return row.count;
+}
+
+export function getUsersSummary(): AdminUsersSummary {
+  ensureSchema();
+  const row = stmt(
+    `SELECT COUNT(*) AS "total",
+            COALESCE(SUM(COALESCE("balanceRub", 0)), 0) AS "totalBalanceRub",
+            COALESCE(SUM(CASE WHEN COALESCE("balanceRub", 0) > 0 THEN 1 ELSE 0 END), 0) AS "withBalance"
+       FROM "user"`,
+  ).get() as AdminUsersSummary;
+  return row;
 }
