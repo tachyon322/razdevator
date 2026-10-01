@@ -1,39 +1,15 @@
-import { headers } from "next/headers";
-import { notFound, redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
-import { getPayment, paymentCreditRub } from "@/lib/db";
-import { findPack } from "@/lib/plans";
-import { PaymentStatus } from "../../../components/PaymentStatus";
+import { redirect } from "next/navigation";
 
-export const metadata = {
-  title: "Оплата — Раздеватор",
-  robots: { index: false },
-};
-
-/** Сюда Exenta возвращает покупателя после оплаты (успешной или нет). */
-export default async function PaymentPage({
+/**
+ * Старый адрес страницы возврата собственного пополнения (ссылки в уже
+ * выставленных счетах Exenta). Ведём на единый `/pay/<id>` — там сессия
+ * владельца проверится на месте.
+ */
+export default async function LegacyPaymentPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) redirect(`/login?next=/payment/${encodeURIComponent(id)}`);
-
-  const payment = getPayment(id);
-  if (!payment || payment.userId !== session.user.id) notFound();
-
-  return (
-    <main className="flex-1 py-14 sm:py-20">
-      <div className="container-page max-w-lg">
-        <PaymentStatus
-          id={payment.id}
-          amountRub={payment.amountRub}
-          creditRub={paymentCreditRub(payment)}
-          packName={findPack(payment.packId)?.name ?? null}
-          initialStatus={payment.status}
-        />
-      </div>
-    </main>
-  );
+  redirect(`/pay/${encodeURIComponent(id)}`);
 }

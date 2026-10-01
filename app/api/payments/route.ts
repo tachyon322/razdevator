@@ -106,7 +106,8 @@ export async function POST(request: NextRequest) {
   }
 
   const payment = createPayment({ userId, amountRub: amount, creditRub, packId });
-  const returnUrl = `${siteUrl(request)}/payment/${payment.id}`;
+  // Тот же адрес возврата, что и у счетов внешних проектов: один гейт на всех.
+  const returnUrl = `${siteUrl(request)}/pay/${payment.id}`;
 
   try {
     const invoice = await createInvoice({

@@ -11,7 +11,6 @@ import { ExentaError, createInvoice } from "@/lib/exenta";
 import {
   allowedReturnOrigin,
   getGatewayProject,
-  returnToken,
   verifyGatewayRequest,
 } from "@/lib/gateway";
 import { applyGatewayProviderStatus } from "@/lib/gateway-payments";
@@ -119,8 +118,9 @@ export async function POST(request: NextRequest) {
     buyerIp: buyerIp(request, body.buyerIp),
   });
 
-  // В счёте Exenta фигурирует только наш домен; сам адрес — нейтральный /pay/<id>.
-  const returnPageUrl = `${siteUrl(request)}/pay/${payment.id}?t=${returnToken(project.secret, payment.id)}`;
+  // В счёте Exenta фигурирует только наш домен; адрес нейтральный, без токена —
+  // страница всё равно ничего не показывает.
+  const returnPageUrl = `${siteUrl(request)}/pay/${payment.id}`;
 
   try {
     const invoice = await createInvoice({
