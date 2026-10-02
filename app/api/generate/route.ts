@@ -13,6 +13,12 @@ import { createGeneration, getUserUsage } from "@/lib/db";
 import { canAfford, formatPrice, generationCostRub } from "@/lib/plans";
 import { imageModel, videoModel } from "@/lib/nanogpt";
 import {
+  assessAge,
+  isSourceAllowed,
+  moderationEnabled,
+  rejectionMessage,
+} from "@/lib/moderation";
+import {
   processGeneration,
   type GenerationJob,
 } from "@/lib/generation-processor";
@@ -145,6 +151,27 @@ export async function POST(request: Request) {
 
   const buffer = new Uint8Array(await file.arrayBuffer());
   const sourceDataUrl = `data:${file.type};base64,${Buffer.from(buffer).toString("base64")}`;
+
+  // Возрастные ворота: не запускаем генерацию по фото несовершеннолетнего.
+  // Fail-closed: ошибка, таймаут или неуверенность модели — это отказ, а не пропуск.
+  if (moderationEnabled()) {
+    try {
+      const assessment = await assessAge(sourceDataUrl);
+      if (!isSourceAllowed(assessment)) {
+        console.warn("[generate] возрастные ворота: отказ", assessment);
+        return NextResponse.json(
+          { message: rejectionMessage() },
+          { status: 403 },
+        );
+      }
+    } catch (error) {
+      console.error("[generate] возрастные ворота недоступны:", error);
+      return NextResponse.json(
+        { message: "Проверка фото временно недоступна. Попробуйте позже." },
+        { status: 503 },
+      );
+    }
+  }
 
   // Оплата: только с баланса — бесплатных пробных генераций нет.
   // Данные читаем свежими, в обход cookie-кеша сессии.

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Manrope, Unbounded } from "next/font/google";
 import { AffiliateTracker } from "./components/AffiliateTracker";
+import { AGE_GATE_INIT_SCRIPT, AgeGate } from "./components/AgeGate";
 import { QuickAuthModal } from "./components/QuickAuthModal";
 import "./globals.css";
 
@@ -30,12 +31,18 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="ru"
+      // Атрибут data-age-verified ставит инлайн-скрипт до гидратации.
+      suppressHydrationWarning
       className={`${manrope.variable} ${unbounded.variable} h-full`}
     >
       <body className="min-h-full flex flex-col bg-canvas text-ink">
+        <script
+          dangerouslySetInnerHTML={{ __html: AGE_GATE_INIT_SCRIPT }}
+        />
         {children}
         <AffiliateTracker />
         <QuickAuthModal />
+        <AgeGate />
       </body>
     </html>
   );
