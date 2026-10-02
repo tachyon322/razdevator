@@ -54,10 +54,10 @@ test("isSourceAllowed: возраст неизвестен — нельзя", ()
   assert.equal(isSourceAllowed({ ...adult, youngestAge: null }), false);
 });
 
-test("isSourceAllowed: порог с запасом на ошибку (по умолчанию 21)", () => {
-  assert.equal(minApparentAge(), 21);
-  assert.equal(isSourceAllowed({ ...adult, youngestAge: 20 }), false);
-  assert.equal(isSourceAllowed({ ...adult, youngestAge: 21 }), true);
+test("isSourceAllowed: порог по умолчанию — 18", () => {
+  assert.equal(minApparentAge(), 18);
+  assert.equal(isSourceAllowed({ ...adult, youngestAge: 17 }), false);
+  assert.equal(isSourceAllowed({ ...adult, youngestAge: 18 }), true);
 });
 
 test("minApparentAge: переопределяется через env", () => {

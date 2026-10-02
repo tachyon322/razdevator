@@ -44,12 +44,12 @@ export function moderationEnabled(): boolean {
 }
 
 /**
- * Минимальный визуальный возраст. Не 18, а с запасом на ошибку оценки:
- * на подростках модель ошибается, поэтому берём запас по умолчанию 21.
+ * Минимальный визуальный возраст. Сервис 18+, поэтому порог — ровно 18:
+ * запас «на ошибку» отсекал совершеннолетних, которые выглядят молодо.
  */
 export function minApparentAge(): number {
-  const raw = Number(process.env.MODERATION_MIN_AGE ?? 21);
-  return Number.isFinite(raw) && raw >= 18 ? raw : 21;
+  const raw = Number(process.env.MODERATION_MIN_AGE ?? 18);
+  return Number.isFinite(raw) && raw >= 18 ? raw : 18;
 }
 
 /** Порог уверенности модели, ниже которого результат считаем ненадёжным. */
@@ -71,11 +71,12 @@ export interface AgeAssessment {
 }
 
 const SYSTEM_PROMPT =
-  "You are a strict safety classifier for an adults-only (18+) image service. " +
+  "You are a safety classifier for an adults-only (18+) image service. " +
   "You inspect a reference photo before a generation runs. " +
-  "Your only job is to judge whether every person in the photo is clearly an adult. " +
-  "Age is often ambiguous: for teenagers you must be conservative and treat anyone " +
-  "who could plausibly be under 18 as a minor. Never guess optimistically. " +
+  "Your only job is to judge whether every person in the photo is an adult. " +
+  "Mark someone as a minor only when they clearly appear younger than 18: " +
+  "looking young on its own is not enough, adults can look young, so judge by " +
+  "mature facial features. If the person looks like an adult, say so plainly. " +
   "Answer with JSON only, no prose.";
 
 const USER_PROMPT =
@@ -83,7 +84,7 @@ const USER_PROMPT =
   '- "persons": integer, how many people are visible;\n' +
   '- "faces": integer, how many faces are visible;\n' +
   '- "youngestAge": integer or null, the apparent age of the youngest-looking person;\n' +
-  '- "minor": boolean, true if any person appears to be under 18 or could plausibly be under 18;\n' +
+  '- "minor": boolean, true only if a person clearly appears to be under 18;\n' +
   '- "confidence": number from 0 to 1 for your overall judgement;\n' +
   '- "reason": short string, one sentence.\n' +
   "If you cannot see any person, set persons and faces to 0 and minor to true.";
