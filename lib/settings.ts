@@ -9,9 +9,9 @@ import { getAppSettings, setAppSetting } from "./db";
 export interface SiteSettings {
   /** Карточки «Фото» и «Видео» на странице цен. */
   showPerItemCards: boolean;
-  /** Пополнение на произвольную сумму в модалке. Выкл — в модалке только пакеты. */
+  /** Пополнение на произвольную сумму в модалке. Выкл — пакеты и своя сумма в узком диапазоне. */
   showCustomTopUp: boolean;
-  /** Сервер отклоняет пополнение на произвольную сумму (пакеты работают). */
+  /** Сервер принимает только пакеты и свою сумму в диапазоне PACK_MODE_TOPUP_RANGE. */
   blockCustomTopUp: boolean;
 }
 
@@ -41,9 +41,9 @@ export function setSiteSetting(key: SettingKey, value: boolean): void {
 }
 
 /**
- * Показывать ли в модалке суммы пополнения. При серверной блокировке — нет,
- * даже если галочка показа включена: иначе пользователь выберет сумму и
- * получит ошибку.
+ * Показывать ли в модалке обычные суммы пополнения (иначе — режим пакетов).
+ * При серверной блокировке — нет, даже если галочка показа включена: иначе
+ * пользователь выберет сумму вне диапазона и получит ошибку.
  */
 export function customTopUpVisible(settings: SiteSettings): boolean {
   return settings.showCustomTopUp && !settings.blockCustomTopUp;

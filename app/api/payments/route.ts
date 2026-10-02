@@ -11,8 +11,8 @@ import {
 import { createInvoice } from "@/lib/exenta";
 import { getSiteSettings } from "@/lib/settings";
 import {
-  MAX_TOPUP,
-  MIN_TOPUP,
+  PACK_MODE_TOPUP_RANGE,
+  TOPUP_RANGE,
   findPack,
   formatPrice,
   isValidTopUp,
@@ -74,19 +74,17 @@ export async function POST(request: NextRequest) {
     creditRub = packCreditRub(pack);
     packId = pack.id;
   } else {
-    // Галочка в админке: пополнение только пакетами.
-    if (getSiteSettings().blockCustomTopUp) {
-      return NextResponse.json(
-        { message: "Пополнение на произвольную сумму недоступно — выберите пакет" },
-        { status: 403 },
-      );
-    }
+    // Галочка в админке «блокировать на сервере»: своя сумма — только в
+    // узком диапазоне режима «пакеты».
+    const range = getSiteSettings().blockCustomTopUp
+      ? PACK_MODE_TOPUP_RANGE
+      : TOPUP_RANGE;
     amount = Number(body.amount);
     creditRub = amount;
-    if (!isValidTopUp(amount)) {
+    if (!isValidTopUp(amount, range)) {
       return NextResponse.json(
         {
-          message: `Сумма пополнения — от ${formatPrice(MIN_TOPUP)} до ${formatPrice(MAX_TOPUP)}`,
+          message: `Сумма пополнения — от ${formatPrice(range.min)} до ${formatPrice(range.max)}`,
         },
         { status: 400 },
       );

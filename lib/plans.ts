@@ -78,9 +78,26 @@ export const MIN_TOPUP = 300;
 /** Максимальная сумма одного пополнения (в рублях). */
 export const MAX_TOPUP = 100_000;
 
-/** Проверка суммы пополнения: целые рубли в пределах [MIN_TOPUP, MAX_TOPUP]. */
-export function isValidTopUp(amount: number): boolean {
-  return Number.isInteger(amount) && amount >= MIN_TOPUP && amount <= MAX_TOPUP;
+export interface TopUpRange {
+  min: number;
+  max: number;
+}
+
+/** Обычные пределы своей суммы пополнения. */
+export const TOPUP_RANGE: TopUpRange = { min: MIN_TOPUP, max: MAX_TOPUP };
+
+/**
+ * Своя сумма в режиме «только пакеты» (настройка админки): рядом с пакетами
+ * можно пополнить и на свою сумму, но в узком диапазоне.
+ */
+export const PACK_MODE_TOPUP_RANGE: TopUpRange = { min: 2000, max: 10_000 };
+
+/** Проверка суммы пополнения: целые рубли в пределах диапазона (по умолчанию — обычного). */
+export function isValidTopUp(
+  amount: number,
+  range: TopUpRange = TOPUP_RANGE,
+): boolean {
+  return Number.isInteger(amount) && amount >= range.min && amount <= range.max;
 }
 
 export function formatPrice(price: number): string {

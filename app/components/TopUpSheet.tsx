@@ -3,14 +3,15 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  MAX_TOPUP,
-  MIN_TOPUP,
   PACKS,
+  PACK_MODE_TOPUP_RANGE,
   PRICES,
   TOPUPS,
+  TOPUP_RANGE,
   formatPrice,
   isValidTopUp,
   packCreditRub,
+  type TopUpRange,
 } from "@/lib/plans";
 import { useBalance } from "./balance-store";
 import { BuyPackButton } from "./BuyPackButton";
@@ -49,9 +50,93 @@ function SheetHeader({
   );
 }
 
+/** Создание счёта на сумму: какая сумма сейчас в работе и ошибка, если не вышло. */
+function useTopUpPayment() {
+  const [pending, setPending] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function pay(amount: number) {
+    if (pending !== null) return;
+    setPending(amount);
+    setError(null);
+    try {
+      // При успехе остаёмся в состоянии загрузки до ухода со страницы.
+      await startPayment({ amount });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось создать счёт.");
+      setPending(null);
+    }
+  }
+
+  return { pending, error, pay };
+}
+
+/** Поле «Своя сумма» с кнопкой и подсказкой о пределах. */
+function CustomAmountField({
+  range,
+  pending,
+  onPay,
+}: {
+  range: TopUpRange;
+  pending: number | null;
+  onPay: (amount: number) => void;
+}) {
+  const [custom, setCustom] = useState("");
+  const customValue = Number(custom);
+  const customValid = custom !== "" && isValidTopUp(customValue, range);
+  const busy = pending !== null;
+
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <input
+            value={custom}
+            onChange={(event) =>
+              setCustom(event.target.value.replace(/\D/g, "").slice(0, 6))
+            }
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && customValid) onPay(customValue);
+            }}
+            disabled={busy}
+            inputMode="numeric"
+            autoComplete="off"
+            aria-label="Своя сумма пополнения"
+            placeholder="Своя сумма"
+            className="h-11 w-full rounded-tile border border-line bg-panel px-3 pr-8 text-sm font-semibold text-ink transition-colors placeholder:font-normal placeholder:text-faint focus:border-line-strong focus:outline-none"
+          />
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-faint">
+            ₽
+          </span>
+        </div>
+        <button
+          type="button"
+          disabled={!customValid || busy}
+          onClick={() => onPay(customValue)}
+          className="h-11 shrink-0 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-5 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+        >
+          {busy && pending === customValue ? "…" : "Пополнить"}
+        </button>
+      </div>
+      <p className="mt-1.5 text-xs text-faint">
+        От {formatPrice(range.min)} до {formatPrice(range.max)} · оплата через СБП
+      </p>
+    </>
+  );
+}
+
+function PaymentError({ error }: { error: string | null }) {
+  if (!error) return null;
+  return (
+    <p role="alert" className="mt-3 text-xs leading-5 text-brand">
+      {error}
+    </p>
+  );
+}
+
 /**
- * Пополнение только пакетами — когда в админке выключены произвольные суммы.
- * Карточки повторяют пакеты со страницы цен.
+ * Режим «только пакеты» (настройка админки): карточки пакетов как на странице
+ * цен и своя сумма в узком диапазоне PACK_MODE_TOPUP_RANGE.
  */
 function PackOptions({
   balance,
@@ -60,6 +145,8 @@ function PackOptions({
   balance: number;
   onClose: () => void;
 }) {
+  const { pending, error, pay } = useTopUpPayment();
+
   return (
     <div>
       <SheetHeader
@@ -67,7 +154,7 @@ function PackOptions({
         subtitle={
           balance > 0
             ? `Текущий баланс: ${formatPrice(balance)}`
-            : "Выберите пакет"
+            : "Выберите пакет или свою сумму"
         }
         onClose={onClose}
       />
@@ -104,6 +191,16 @@ function PackOptions({
           </div>
         ))}
       </div>
+
+      <p className="mt-4 text-xs font-medium text-muted">Или своя сумма</p>
+      <div className="mt-2">
+        <CustomAmountField
+          range={PACK_MODE_TOPUP_RANGE}
+          pending={pending}
+          onPay={(amount) => void pay(amount)}
+        />
+      </div>
+      <PaymentError error={error} />
     </div>
   );
 }
@@ -132,25 +229,8 @@ function AmountOptions({
   balance: number;
   onClose: () => void;
 }) {
-  const [pending, setPending] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [custom, setCustom] = useState("");
-  const customValue = Number(custom);
-  const customValid = custom !== "" && isValidTopUp(customValue);
+  const { pending, error, pay } = useTopUpPayment();
   const busy = pending !== null;
-
-  async function pay(amount: number) {
-    if (busy) return;
-    setPending(amount);
-    setError(null);
-    try {
-      // При успехе остаёмся в состоянии загрузки до ухода со страницы.
-      await startPayment({ amount });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось создать счёт.");
-      setPending(null);
-    }
-  }
 
   return (
     <div>
@@ -183,47 +263,14 @@ function AmountOptions({
         ))}
       </div>
 
-      <div className="mt-2.5 flex items-center gap-2">
-        <div className="relative flex-1">
-          <input
-            value={custom}
-            onChange={(event) =>
-              setCustom(event.target.value.replace(/\D/g, "").slice(0, 6))
-            }
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && customValid) {
-                void pay(customValue);
-              }
-            }}
-            disabled={busy}
-            inputMode="numeric"
-            autoComplete="off"
-            aria-label="Своя сумма пополнения"
-            placeholder="Своя сумма"
-            className="h-11 w-full rounded-tile border border-line bg-panel px-3 pr-8 text-sm font-semibold text-ink transition-colors placeholder:font-normal placeholder:text-faint focus:border-line-strong focus:outline-none"
-          />
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-faint">
-            ₽
-          </span>
-        </div>
-        <button
-          type="button"
-          disabled={!customValid || busy}
-          onClick={() => void pay(customValue)}
-          className="h-11 shrink-0 rounded-full bg-[linear-gradient(135deg,#e11d48,#9f1239)] px-5 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
-        >
-          {busy && pending === customValue ? "…" : "Пополнить"}
-        </button>
+      <div className="mt-2.5">
+        <CustomAmountField
+          range={TOPUP_RANGE}
+          pending={pending}
+          onPay={(amount) => void pay(amount)}
+        />
       </div>
-      <p className="mt-1.5 text-xs text-faint">
-        От {formatPrice(MIN_TOPUP)} до {formatPrice(MAX_TOPUP)} · оплата через СБП
-      </p>
-
-      {error && (
-        <p role="alert" className="mt-3 text-xs leading-5 text-brand">
-          {error}
-        </p>
-      )}
+      <PaymentError error={error} />
     </div>
   );
 }

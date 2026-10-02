@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   MIN_TOPUP,
+  PACK_MODE_TOPUP_RANGE,
+  isValidTopUp,
   PRICES,
   TOPUPS,
   canAfford,
@@ -60,4 +62,17 @@ test("canAfford: на два фото нужно 200 ₽", () => {
 test("canAfford: видео стоит фиксированно, независимо от длительности", () => {
   assert.equal(canAfford(250, generationCostRub("video", 4)), true);
   assert.equal(canAfford(249, generationCostRub("video", 1)), false);
+});
+
+test("isValidTopUp: обычный диапазон по умолчанию, узкий — в режиме пакетов", () => {
+  assert.equal(isValidTopUp(300), true);
+  assert.equal(isValidTopUp(299), false);
+  assert.equal(isValidTopUp(100_000), true);
+  assert.equal(isValidTopUp(500.5), false);
+
+  assert.deepEqual(PACK_MODE_TOPUP_RANGE, { min: 2000, max: 10_000 });
+  assert.equal(isValidTopUp(1999, PACK_MODE_TOPUP_RANGE), false);
+  assert.equal(isValidTopUp(2000, PACK_MODE_TOPUP_RANGE), true);
+  assert.equal(isValidTopUp(10_000, PACK_MODE_TOPUP_RANGE), true);
+  assert.equal(isValidTopUp(10_001, PACK_MODE_TOPUP_RANGE), false);
 });

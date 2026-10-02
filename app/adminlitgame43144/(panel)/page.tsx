@@ -1,6 +1,9 @@
 import { requireAdmin } from "@/lib/admin";
+import { PACK_MODE_TOPUP_RANGE, formatPrice } from "@/lib/plans";
 import { getSiteSettings, type SettingKey } from "@/lib/settings";
 import { SettingToggle } from "./SettingToggle";
+
+const PACK_MODE_RANGE = `от ${formatPrice(PACK_MODE_TOPUP_RANGE.min)} до ${formatPrice(PACK_MODE_TOPUP_RANGE.max)}`;
 
 const SETTINGS: { key: SettingKey; title: string; description: string }[] = [
   {
@@ -12,13 +15,13 @@ const SETTINGS: { key: SettingKey; title: string; description: string }[] = [
     key: "showCustomTopUp",
     title: "Пополнение на произвольную сумму",
     description:
-      "Выключено — в модалке пополнения вместо сумм показываются только пакеты.",
+      `Выключено — в модалке пополнения пакеты и своя сумма ${PACK_MODE_RANGE} вместо обычных сумм.`,
   },
   {
     key: "blockCustomTopUp",
     title: "Блокировать произвольные суммы на сервере",
     description:
-      "Включено — сервер отклоняет пополнение на сумму, даже если запрос отправлен в обход интерфейса. Покупка пакетов работает. Пока блокировка включена, модалка показывает только пакеты независимо от галочки выше.",
+      `Включено — сервер принимает только пакеты и свою сумму ${PACK_MODE_RANGE}, даже если запрос отправлен в обход интерфейса. Пока блокировка включена, модалка работает в режиме пакетов независимо от галочки выше.`,
   },
 ];
 

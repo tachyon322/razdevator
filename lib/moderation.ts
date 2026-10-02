@@ -70,7 +70,8 @@ export interface AgeAssessment {
   reason: string;
 }
 
-const SYSTEM_PROMPT =
+/** Промпты и разбор ответа — экспортируем для локального стенда (app/dev/moderation). */
+export const SYSTEM_PROMPT =
   "You are a safety classifier for an adults-only (18+) image service. " +
   "You inspect a reference photo before a generation runs. " +
   "Your only job is to judge whether every person in the photo is an adult. " +
@@ -79,7 +80,7 @@ const SYSTEM_PROMPT =
   "mature facial features. If the person looks like an adult, say so plainly. " +
   "Answer with JSON only, no prose.";
 
-const USER_PROMPT =
+export const USER_PROMPT =
   "Analyze the image and return JSON with exactly these fields:\n" +
   '- "persons": integer, how many people are visible;\n' +
   '- "faces": integer, how many faces are visible;\n' +
@@ -93,7 +94,7 @@ interface ChatCompletionResponse {
   choices?: { message?: { content?: string | null } }[];
 }
 
-function coerceAssessment(raw: unknown): AgeAssessment {
+export function coerceAssessment(raw: unknown): AgeAssessment {
   const data = (raw ?? {}) as Record<string, unknown>;
   const int = (value: unknown): number => {
     const n = Number(value);
