@@ -98,7 +98,9 @@ CREATE INDEX IF NOT EXISTS "generation_asset_generationId_idx" ON "generation_as
 CREATE TABLE IF NOT EXISTS "payment" (
   "id"           TEXT NOT NULL PRIMARY KEY,
   "userId"       TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
+  "providerId"   TEXT,
   "providerUuid" TEXT UNIQUE,
+  "providerStatus" TEXT,
   "amountRub"    INTEGER NOT NULL,
   "creditRub"    INTEGER,
   "packId"       TEXT,
@@ -131,7 +133,9 @@ CREATE TABLE IF NOT EXISTS "gateway_payment" (
   "purpose"        TEXT,
   "method"         TEXT,
   "amountRub"      INTEGER NOT NULL,
+  "providerId"     TEXT,
   "providerUuid"   TEXT UNIQUE,
+  "providerStatus" TEXT,
   "redirectUrl"    TEXT,
   "returnUrl"      TEXT,
   "buyerIp"        TEXT,
@@ -158,6 +162,36 @@ CREATE TABLE IF NOT EXISTS "gateway_outbox" (
 );
 
 CREATE INDEX IF NOT EXISTS "gateway_outbox_due_idx" ON "gateway_outbox" ("status", "nextAttemptAt");
+
+CREATE TABLE IF NOT EXISTS "payment_provider" (
+  "id"        TEXT NOT NULL PRIMARY KEY,
+  "name"      TEXT NOT NULL,
+  "kind"      TEXT NOT NULL DEFAULT 'http',
+  "config"    TEXT NOT NULL,
+  "enabled"   INTEGER NOT NULL DEFAULT 1,
+  "sortOrder" INTEGER NOT NULL DEFAULT 100,
+  "createdAt" TEXT NOT NULL,
+  "updatedAt" TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "payment_event" (
+  "id"               INTEGER PRIMARY KEY AUTOINCREMENT,
+  "providerId"       TEXT NOT NULL,
+  "eventId"          TEXT NOT NULL,
+  "paymentId"        TEXT,
+  "gatewayPaymentId" TEXT,
+  "rawStatus"        TEXT NOT NULL,
+  "mappedStatus"     TEXT NOT NULL,
+  "amount"           TEXT,
+  "currency"         TEXT,
+  "payload"          TEXT NOT NULL,
+  "createdAt"        TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "payment_event_provider_event_idx"
+  ON "payment_event" ("providerId", "eventId");
+CREATE INDEX IF NOT EXISTS "payment_event_payment_idx"
+  ON "payment_event" ("paymentId");
 
 CREATE TABLE IF NOT EXISTS "app_setting" (
   "key"       TEXT NOT NULL PRIMARY KEY,
@@ -256,6 +290,29 @@ function ensurePaymentColumns(instance: DatabaseType): void {
   if (!columns.has("packId")) {
     instance.exec(`ALTER TABLE "payment" ADD COLUMN "packId" TEXT`);
   }
+  if (!columns.has("providerId")) {
+    instance.exec(`ALTER TABLE "payment" ADD COLUMN "providerId" TEXT`);
+  }
+  if (!columns.has("providerStatus")) {
+    instance.exec(`ALTER TABLE "payment" ADD COLUMN "providerStatus" TEXT`);
+  }
+}
+
+/** Новые колонки счёта шлюза: какая платёжка выставила счёт и её статус. */
+function ensureGatewayPaymentColumns(instance: DatabaseType): void {
+  const columns = new Set(
+    (
+      instance.prepare(`PRAGMA table_info("gateway_payment")`).all() as {
+        name: string;
+      }[]
+    ).map((column) => column.name),
+  );
+  if (!columns.has("providerId")) {
+    instance.exec(`ALTER TABLE "gateway_payment" ADD COLUMN "providerId" TEXT`);
+  }
+  if (!columns.has("providerStatus")) {
+    instance.exec(`ALTER TABLE "gateway_payment" ADD COLUMN "providerStatus" TEXT`);
+  }
 }
 
 const statements = new Map<string, Statement>();
@@ -284,6 +341,25 @@ export function ensureSchema(): void {
   const instance = getDb();
   instance.exec(SCHEMA);
   ensurePaymentColumns(instance);
+  ensureGatewayPaymentColumns(instance);
+  // Индексы по providerId создаём после ALTER TABLE: на старой базе колонок
+  // ещё нет, и CREATE INDEX из SCHEMA упал бы.
+  instance.exec(
+    `CREATE INDEX IF NOT EXISTS "payment_provider_idx" ON "payment" ("providerId", "providerUuid")`,
+  );
+  instance.exec(
+    `CREATE INDEX IF NOT EXISTS "gateway_payment_provider_idx" ON "gateway_payment" ("providerId", "providerUuid")`,
+  );
+  // Старые счета выставлены Exenta — фиксируем это, чтобы сверка после
+  // переключения провайдера шла через правильный API.
+  instance.exec(
+    `UPDATE "payment" SET "providerId" = 'exenta'
+      WHERE "providerId" IS NULL AND "providerUuid" IS NOT NULL`,
+  );
+  instance.exec(
+    `UPDATE "gateway_payment" SET "providerId" = 'exenta'
+      WHERE "providerId" IS NULL AND "providerUuid" IS NOT NULL`,
+  );
   schemaReady = true;
 
   // Незавершённые задачи от прошлого процесса (старше 30 мин) помечаем
@@ -614,7 +690,11 @@ export type PaymentStatus =
 export interface Payment {
   id: string;
   userId: string;
+  /** Платёжка, выставившая счёт (NULL у черновиков и старых записей до бэкфилла). */
+  providerId: string | null;
   providerUuid: string | null;
+  /** Статус в терминах провайдера — для диагностики. */
+  providerStatus: string | null;
   /** Сколько платит покупатель. */
   amountRub: number;
   /** Сколько зачислить на баланс; NULL у старых записей — значит amountRub. */
@@ -668,12 +748,16 @@ export function getPayment(id: string): Payment | null {
   );
 }
 
-export function getPaymentByProviderUuid(uuid: string): Payment | null {
+export function getPaymentByProviderUuid(
+  providerId: string,
+  uuid: string,
+): Payment | null {
   ensureSchema();
   return (
-    (stmt(`SELECT * FROM "payment" WHERE "providerUuid" = ?`).get(uuid) as
-      | Payment
-      | undefined) ?? null
+    (stmt(
+      `SELECT * FROM "payment"
+        WHERE "providerUuid" = ? AND ("providerId" = ? OR "providerId" IS NULL)`,
+    ).get(uuid, providerId) as Payment | undefined) ?? null
   );
 }
 
@@ -687,15 +771,39 @@ export function countOpenPayments(userId: string, since: string): number {
   return row.count;
 }
 
+export interface AttachProviderPaymentInput {
+  providerId: string;
+  providerUuid: string;
+  status: Exclude<PaymentStatus, "SUCCESS">;
+  providerStatus?: string | null;
+}
+
 export function attachProviderPayment(
   id: string,
-  providerUuid: string,
-  status: Exclude<PaymentStatus, "SUCCESS">,
+  input: AttachProviderPaymentInput,
 ): void {
   ensureSchema();
   stmt(
-    `UPDATE "payment" SET "providerUuid" = ?, "status" = ?, "updatedAt" = ? WHERE "id" = ?`,
-  ).run(providerUuid, status, new Date().toISOString(), id);
+    `UPDATE "payment"
+        SET "providerId" = ?, "providerUuid" = ?, "status" = ?,
+            "providerStatus" = ?, "updatedAt" = ?
+      WHERE "id" = ?`,
+  ).run(
+    input.providerId,
+    input.providerUuid,
+    input.status,
+    input.providerStatus ?? null,
+    new Date().toISOString(),
+    id,
+  );
+}
+
+/** Запоминает сырой статус провайдера для диагностики. */
+export function setPaymentProviderStatus(id: string, rawStatus: string): void {
+  ensureSchema();
+  stmt(
+    `UPDATE "payment" SET "providerStatus" = ?, "updatedAt" = ? WHERE "id" = ?`,
+  ).run(rawStatus, new Date().toISOString(), id);
 }
 
 /**
@@ -814,8 +922,12 @@ export interface GatewayPayment {
   purpose: string | null;
   method: string | null;
   amountRub: number;
-  /** uuid счёта в Exenta. */
+  /** Платёжка, выставившая счёт (NULL у черновиков и старых записей до бэкфилла). */
+  providerId: string | null;
+  /** uuid счёта у провайдера. */
   providerUuid: string | null;
+  /** Статус в терминах провайдера — для диагностики. */
+  providerStatus: string | null;
   redirectUrl: string | null;
   /** Куда вернуть покупателя с нашей страницы возврата. */
   returnUrl: string | null;
@@ -884,12 +996,16 @@ export function getGatewayPaymentByExternalId(
   );
 }
 
-export function getGatewayPaymentByProviderUuid(uuid: string): GatewayPayment | null {
+export function getGatewayPaymentByProviderUuid(
+  providerId: string,
+  uuid: string,
+): GatewayPayment | null {
   ensureSchema();
   return (
-    (stmt(`SELECT * FROM "gateway_payment" WHERE "providerUuid" = ?`).get(uuid) as
-      | GatewayPayment
-      | undefined) ?? null
+    (stmt(
+      `SELECT * FROM "gateway_payment"
+        WHERE "providerUuid" = ? AND ("providerId" = ? OR "providerId" IS NULL)`,
+    ).get(uuid, providerId) as GatewayPayment | undefined) ?? null
   );
 }
 
@@ -903,18 +1019,42 @@ export function countOpenGatewayPayments(projectId: string, since: string): numb
   return row.count;
 }
 
+export interface AttachGatewayProviderInput {
+  providerId: string;
+  providerUuid: string;
+  redirectUrl: string;
+  status: Exclude<GatewayPaymentStatus, "PAID">;
+  providerStatus?: string | null;
+}
+
 export function attachGatewayProvider(
   id: string,
-  providerUuid: string,
-  redirectUrl: string,
-  status: Exclude<GatewayPaymentStatus, "PAID"> = "PENDING",
+  input: AttachGatewayProviderInput,
 ): GatewayPayment {
   ensureSchema();
   stmt(
-    `UPDATE "gateway_payment" SET "providerUuid" = ?, "redirectUrl" = ?, "status" = ?, "updatedAt" = ?
+    `UPDATE "gateway_payment"
+        SET "providerId" = ?, "providerUuid" = ?, "redirectUrl" = ?,
+            "status" = ?, "providerStatus" = ?, "updatedAt" = ?
       WHERE "id" = ? AND "paidAt" IS NULL`,
-  ).run(providerUuid, redirectUrl, status, new Date().toISOString(), id);
+  ).run(
+    input.providerId,
+    input.providerUuid,
+    input.redirectUrl,
+    input.status,
+    input.providerStatus ?? null,
+    new Date().toISOString(),
+    id,
+  );
   return getGatewayPayment(id) as GatewayPayment;
+}
+
+/** Запоминает сырой статус провайдера для диагностики. */
+export function setGatewayProviderStatus(id: string, rawStatus: string): void {
+  ensureSchema();
+  stmt(
+    `UPDATE "gateway_payment" SET "providerStatus" = ?, "updatedAt" = ? WHERE "id" = ?`,
+  ).run(rawStatus, new Date().toISOString(), id);
 }
 
 /** Обновляет статус незавершённого счёта; оплаченный (PAID) не откатываем. */
@@ -1102,4 +1242,167 @@ export function getUsersSummary(): AdminUsersSummary {
        FROM "user"`,
   ).get() as AdminUsersSummary;
   return row;
+}
+
+// --- Платёжные провайдеры (админка) ---
+
+export interface PaymentProviderRow {
+  id: string;
+  name: string;
+  kind: string;
+  /** JSON конфига; секреты внутри запечатаны (см. lib/provider-secrets.ts). */
+  config: string;
+  enabled: number;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function listPaymentProviderRows(): PaymentProviderRow[] {
+  ensureSchema();
+  return stmt(
+    `SELECT * FROM "payment_provider" ORDER BY "sortOrder", "name"`,
+  ).all() as PaymentProviderRow[];
+}
+
+export function getPaymentProviderRow(id: string): PaymentProviderRow | null {
+  ensureSchema();
+  return (
+    (stmt(`SELECT * FROM "payment_provider" WHERE "id" = ?`).get(id) as
+      | PaymentProviderRow
+      | undefined) ?? null
+  );
+}
+
+export interface CreatePaymentProviderInput {
+  name: string;
+  kind?: string;
+  config: string;
+  enabled?: boolean;
+  sortOrder?: number;
+}
+
+export function createPaymentProvider(
+  input: CreatePaymentProviderInput,
+): PaymentProviderRow {
+  ensureSchema();
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  stmt(
+    `INSERT INTO "payment_provider"
+        ("id","name","kind","config","enabled","sortOrder","createdAt","updatedAt")
+     VALUES (?,?,?,?,?,?,?,?)`,
+  ).run(
+    id,
+    input.name,
+    input.kind ?? "http",
+    input.config,
+    input.enabled === false ? 0 : 1,
+    input.sortOrder ?? 100,
+    now,
+    now,
+  );
+  return getPaymentProviderRow(id) as PaymentProviderRow;
+}
+
+export interface UpdatePaymentProviderInput {
+  name: string;
+  config: string;
+  enabled: boolean;
+  sortOrder: number;
+}
+
+export function updatePaymentProvider(
+  id: string,
+  input: UpdatePaymentProviderInput,
+): void {
+  ensureSchema();
+  stmt(
+    `UPDATE "payment_provider"
+        SET "name" = ?, "config" = ?, "enabled" = ?, "sortOrder" = ?, "updatedAt" = ?
+      WHERE "id" = ?`,
+  ).run(
+    input.name,
+    input.config,
+    input.enabled ? 1 : 0,
+    input.sortOrder,
+    new Date().toISOString(),
+    id,
+  );
+}
+
+export function setPaymentProviderEnabled(id: string, enabled: boolean): void {
+  ensureSchema();
+  stmt(
+    `UPDATE "payment_provider" SET "enabled" = ?, "updatedAt" = ? WHERE "id" = ?`,
+  ).run(enabled ? 1 : 0, new Date().toISOString(), id);
+}
+
+// --- События вебхуков (идемпотентность и аудит) ---
+
+export interface PaymentEventInput {
+  providerId: string;
+  eventId: string;
+  paymentId?: string | null;
+  gatewayPaymentId?: string | null;
+  rawStatus: string;
+  mappedStatus: string;
+  amount?: string | null;
+  currency?: string | null;
+  payload: string;
+}
+
+export function hasPaymentEvent(providerId: string, eventId: string): boolean {
+  ensureSchema();
+  return Boolean(
+    stmt(
+      `SELECT 1 FROM "payment_event" WHERE "providerId" = ? AND "eventId" = ?`,
+    ).get(providerId, eventId),
+  );
+}
+
+/** Пишет событие; повтор с тем же eventId игнорируется. */
+export function recordPaymentEvent(input: PaymentEventInput): boolean {
+  ensureSchema();
+  const info = stmt(
+    `INSERT OR IGNORE INTO "payment_event"
+        ("providerId","eventId","paymentId","gatewayPaymentId","rawStatus","mappedStatus","amount","currency","payload","createdAt")
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    input.providerId,
+    input.eventId,
+    input.paymentId ?? null,
+    input.gatewayPaymentId ?? null,
+    input.rawStatus,
+    input.mappedStatus,
+    input.amount ?? null,
+    input.currency ?? null,
+    input.payload,
+    new Date().toISOString(),
+  );
+  return info.changes > 0;
+}
+
+export interface RecentPaymentRow {
+  kind: "site" | "gateway";
+  id: string;
+  providerId: string | null;
+  providerStatus: string | null;
+  amountRub: number;
+  status: string;
+  createdAt: string;
+}
+
+/** Последние счета сайта и шлюза — для проверки переключения в админке. */
+export function listRecentPayments(limit = 20): RecentPaymentRow[] {
+  ensureSchema();
+  return stmt(
+    `SELECT 'site' AS "kind", "id", "providerId", "providerStatus", "amountRub", "status", "createdAt"
+       FROM "payment"
+     UNION ALL
+     SELECT 'gateway', "id", "providerId", "providerStatus", "amountRub", "status", "createdAt"
+       FROM "gateway_payment"
+     ORDER BY "createdAt" DESC
+     LIMIT ?`,
+  ).all(limit) as RecentPaymentRow[];
 }

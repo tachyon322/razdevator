@@ -2,13 +2,8 @@ import { isIP } from "node:net";
 import { headers } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import {
-  attachProviderPayment,
-  countOpenPayments,
-  createPayment,
-  setPaymentStatus,
-} from "@/lib/db";
-import { createInvoice } from "@/lib/exenta";
+import { countOpenPayments } from "@/lib/db";
+import { NoProviderError, createSiteInvoice } from "@/lib/payment-create";
 import { getSiteSettings } from "@/lib/settings";
 import {
   PACK_MODE_TOPUP_RANGE,
@@ -24,8 +19,6 @@ export const runtime = "nodejs";
 /** Сколько неоплаченных счетов можно держать одновременно (срок жизни — 15 мин). */
 const MAX_OPEN_PAYMENTS = 5;
 const OPEN_WINDOW_MS = 15 * 60 * 1000;
-
-const DESCRIPTION = "Пополнение баланса neuromatic";
 
 /** IP покупателя за прокси (Caddy кладёт его в X-Forwarded-For). */
 function buyerIp(requestHeaders: Headers): string | null {
@@ -103,28 +96,28 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const payment = createPayment({ userId, amountRub: amount, creditRub, packId });
-  // Тот же адрес возврата, что и у счетов внешних проектов: один гейт на всех.
-  const returnUrl = `${siteUrl(request)}/pay/${payment.id}`;
-
   try {
-    const invoice = await createInvoice({
+    const result = await createSiteInvoice({
+      userId,
       amountRub: amount,
-      description: DESCRIPTION,
+      creditRub,
+      packId,
       buyerIp: buyerIp(requestHeaders),
-      successUrl: returnUrl,
-      failedUrl: returnUrl,
+      siteUrl: siteUrl(request),
     });
-    // Успех проводится только через сверку (creditPayment), не при создании.
-    attachProviderPayment(
-      payment.id,
-      invoice.uuid,
-      invoice.status === "SUCCESS" ? "PENDING" : invoice.status,
-    );
-    return NextResponse.json({ id: payment.id, redirectUrl: invoice.redirectUrl });
+    return NextResponse.json({
+      id: result.payment.id,
+      redirectUrl: result.redirectUrl,
+    });
   } catch (error) {
+    if (error instanceof NoProviderError) {
+      console.error("[payments] нет доступных платёжных провайдеров");
+      return NextResponse.json(
+        { message: "Оплата временно недоступна. Попробуйте позже." },
+        { status: 503 },
+      );
+    }
     console.error("[payments] не удалось создать счёт:", error);
-    setPaymentStatus(payment.id, "FAILED");
     return NextResponse.json(
       { message: "Платёжный сервис временно недоступен. Попробуйте позже." },
       { status: 502 },

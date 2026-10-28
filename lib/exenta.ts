@@ -24,6 +24,15 @@ export interface ProviderPayment {
   amount?: string;
   status: PaymentStatus;
   redirectUrl?: string;
+  /** Валюта счёта; по умолчанию RUB. */
+  currency?: string;
+  /** Статус в терминах провайдера (для аудита). */
+  rawStatus?: string;
+}
+
+/** Позволяет подменить fetch в тестах, не меняя поведение в проде. */
+export interface ExentaDeps {
+  fetch?: typeof fetch;
 }
 
 const STATUSES: readonly PaymentStatus[] = [
@@ -85,6 +94,8 @@ export function parsePayment(body: unknown): ProviderPayment {
     amount: typeof data.amount === "string" ? data.amount : undefined,
     redirectUrl:
       typeof data.redirectUrl === "string" ? data.redirectUrl : undefined,
+    currency: typeof data.currency === "string" ? data.currency : "RUB",
+    rawStatus: data.status,
   };
 }
 
@@ -92,10 +103,12 @@ async function request(
   method: "GET" | "POST",
   path: string,
   body?: unknown,
+  deps: ExentaDeps = {},
 ): Promise<ProviderPayment> {
+  const fetchImpl = deps.fetch ?? fetch;
   let res: Response;
   try {
-    res = await fetch(`${exentaBaseUrl()}${path}`, {
+    res = await fetchImpl(`${exentaBaseUrl()}${path}`, {
       method,
       headers: {
         "Content-Type": "application/json",
@@ -138,15 +151,21 @@ export interface CreateInvoiceInput {
 /** Создаёт счёт; покупателя нужно отправить на `redirectUrl`. */
 export async function createInvoice(
   input: CreateInvoiceInput,
+  deps: ExentaDeps = {},
 ): Promise<ProviderPayment & { redirectUrl: string }> {
-  const payment = await request("POST", "/payments/h2h", {
-    currencyCode: "RUB",
-    amount: rubToKopecks(input.amountRub),
-    description: input.description,
-    ...(input.buyerIp ? { buyerIp: input.buyerIp } : {}),
-    successUrl: input.successUrl,
-    failedUrl: input.failedUrl,
-  });
+  const payment = await request(
+    "POST",
+    "/payments/h2h",
+    {
+      currencyCode: "RUB",
+      amount: rubToKopecks(input.amountRub),
+      description: input.description,
+      ...(input.buyerIp ? { buyerIp: input.buyerIp } : {}),
+      successUrl: input.successUrl,
+      failedUrl: input.failedUrl,
+    },
+    deps,
+  );
   if (!payment.redirectUrl) {
     throw new ExentaError("Exenta не вернула ссылку на оплату");
   }
@@ -159,13 +178,14 @@ export async function createInvoice(
  */
 export async function fetchPaymentStatus(
   uuid: string,
+  deps: ExentaDeps = {},
 ): Promise<ProviderPayment> {
   const path = `/payments/${encodeURIComponent(uuid)}`;
   try {
-    return await request("POST", `${path}/sync`);
+    return await request("POST", `${path}/sync`, undefined, deps);
   } catch (error) {
     console.warn("[exenta] sync не удался, читаю статус:", error);
-    return request("GET", path);
+    return request("GET", path, undefined, deps);
   }
 }
 

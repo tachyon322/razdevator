@@ -56,7 +56,12 @@ function pendingPayment(
   extra: { creditRub?: number; packId?: string } = {},
 ) {
   const payment = db.createPayment({ userId, amountRub, ...extra });
-  db.attachProviderPayment(payment.id, uuid, "PENDING");
+  db.attachProviderPayment(payment.id, {
+    providerId: "exenta",
+    providerUuid: uuid,
+    status: "PENDING",
+    providerStatus: "PENDING",
+  });
   return db.getPayment(payment.id)!;
 }
 
@@ -74,7 +79,12 @@ test("миграция: старая таблица payment получает к�
   assert.equal(legacy.packId, null);
   assert.equal(db.paymentCreditRub(legacy), 700);
 
-  applyProviderStatus(legacy, { uuid: "uuid-legacy", status: "SUCCESS", amount: "70000" });
+  applyProviderStatus(legacy, {
+    providerUuid: "uuid-legacy",
+    rawStatus: "SUCCESS",
+    status: "SUCCESS",
+    amount: "70000",
+  });
   assert.equal(balance("u-legacy"), 700);
 });
 
@@ -94,7 +104,8 @@ test("пакет: платим цену пакета, на баланс зачи
 
   // Провайдер подтверждает оплаченную сумму — цену пакета, а не номинал.
   const paid = applyProviderStatus(payment, {
-    uuid: "uuid-pack",
+    providerUuid: "uuid-pack",
+    rawStatus: "SUCCESS",
     status: "SUCCESS",
     amount: rubToKopecks(pack.price),
   });
@@ -150,7 +161,12 @@ test("verifyWebhookSignature принимает hex и base64, отклоняе�
 test("успешный платёж зачисляется ровно один раз", () => {
   seed("u-pay", 100);
   const payment = pendingPayment("u-pay", 1000, "uuid-once");
-  const provider = { uuid: "uuid-once", status: "SUCCESS" as const, amount: "100000" };
+  const provider = {
+    providerUuid: "uuid-once",
+    rawStatus: "SUCCESS",
+    status: "SUCCESS" as const,
+    amount: "100000",
+  };
 
   const updated = applyProviderStatus(payment, provider);
   assert.equal(updated.status, "SUCCESS");
@@ -167,7 +183,8 @@ test("расхождение суммы — не зачисляем", () => {
   seed("u-mismatch", 0);
   const payment = pendingPayment("u-mismatch", 1000, "uuid-mismatch");
   const updated = applyProviderStatus(payment, {
-    uuid: "uuid-mismatch",
+    providerUuid: "uuid-mismatch",
+    rawStatus: "SUCCESS",
     status: "SUCCESS",
     amount: "1000000",
   });
@@ -178,11 +195,11 @@ test("расхождение суммы — не зачисляем", () => {
 test("неуспешные статусы не трогают баланс и не перетирают SUCCESS", () => {
   seed("u-fail", 0);
   const payment = pendingPayment("u-fail", 500, "uuid-fail");
-  const cancelled = applyProviderStatus(payment, { uuid: "uuid-fail", status: "CANCELLED" });
+  const cancelled = applyProviderStatus(payment, { providerUuid: "uuid-fail", rawStatus: "CANCELLED", status: "CANCELLED" });
   assert.equal(cancelled.status, "CANCELLED");
   assert.equal(balance("u-fail"), 0);
 
-  const paid = applyProviderStatus(cancelled, { uuid: "uuid-fail", status: "SUCCESS" });
+  const paid = applyProviderStatus(cancelled, { providerUuid: "uuid-fail", rawStatus: "SUCCESS", status: "SUCCESS" });
   assert.equal(paid.status, "SUCCESS");
   assert.equal(balance("u-fail"), 500);
 
@@ -194,7 +211,7 @@ test("чужой uuid провайдера отклоняется", () => {
   seed("u-uuid", 0);
   const payment = pendingPayment("u-uuid", 500, "uuid-mine");
   assert.throws(() =>
-    applyProviderStatus(payment, { uuid: "uuid-other", status: "SUCCESS" }),
+    applyProviderStatus(payment, { providerUuid: "uuid-other", rawStatus: "SUCCESS", status: "SUCCESS" }),
   );
   assert.equal(balance("u-uuid"), 0);
 });

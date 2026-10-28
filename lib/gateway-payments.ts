@@ -1,6 +1,6 @@
 /**
- * Сведение счёта шлюза с провайдером: используется и вебхуком Exenta, и
- * опросом статуса со страницы возврата. Успех проводится ровно один раз
+ * Сведение счёта шлюза с провайдером: используется и вебхуком, и опросом
+ * статуса со страницы возврата. Успех проводится ровно один раз
  * (markGatewayPaid), после чего проекту ставится колбэк в очередь.
  */
 import {
@@ -8,10 +8,14 @@ import {
   getGatewayPayment,
   markGatewayPaid,
   setGatewayPaymentStatus,
+  setGatewayProviderStatus,
   type GatewayPayment,
   type GatewayPaymentStatus,
+  type PaymentStatus,
 } from "./db";
-import { fetchPaymentStatus, rubToKopecks, type ProviderPayment } from "./exenta";
+import { rubToKopecks } from "./exenta";
+import { getAdapter, type ProviderStatusResult } from "./payment-provider";
+import { getProvider } from "./payment-provider-registry";
 
 /** Статус, который уходит проекту: совпадает с его словарём (kazik). */
 type CallbackStatus = "PAID" | "FAILED" | "CANCELED";
@@ -20,9 +24,9 @@ export function isGatewayFinal(status: GatewayPaymentStatus): boolean {
   return status === "PAID" || status === "FAILED" || status === "CANCELED";
 }
 
-/** Статусы Exenta → статусы шлюза. */
+/** Статусы провайдера → статусы шлюза. */
 export function gatewayStatusFromProvider(
-  status: ProviderPayment["status"],
+  status: PaymentStatus,
 ): GatewayPaymentStatus {
   switch (status) {
     case "SUCCESS":
@@ -57,12 +61,19 @@ function queueCallback(payment: GatewayPayment, status: CallbackStatus): void {
 /** Применяет статус провайдера к счёту шлюза. Возвращает свежую запись. */
 export function applyGatewayProviderStatus(
   payment: GatewayPayment,
-  provider: ProviderPayment,
+  provider: ProviderStatusResult,
 ): GatewayPayment {
-  if (provider.uuid !== payment.providerUuid) {
+  if (provider.providerUuid !== payment.providerUuid) {
     throw new Error(
-      `Счёт шлюза ${payment.id}: uuid провайдера ${provider.uuid} не совпадает`,
+      `Счёт шлюза ${payment.id}: uuid провайдера ${provider.providerUuid} не совпадает`,
     );
+  }
+
+  if (provider.currency && provider.currency.toUpperCase() !== "RUB") {
+    console.error(
+      `[gateway] валюта не совпадает: счёт ${payment.id}, пришло ${provider.currency}`,
+    );
+    return payment;
   }
 
   const next = gatewayStatusFromProvider(provider.status);
@@ -79,17 +90,22 @@ export function applyGatewayProviderStatus(
       return payment;
     }
     markGatewayPaid(payment.id);
+    if (provider.rawStatus) setGatewayProviderStatus(payment.id, provider.rawStatus);
     const fresh = getGatewayPayment(payment.id) ?? payment;
     if (fresh.status === "PAID") queueCallback(fresh, "PAID");
     return fresh;
   }
 
   // Успех не откатываем: PAID — окончательный статус счёта.
-  if (payment.status === "PAID") return payment;
+  if (payment.status === "PAID") {
+    if (provider.rawStatus) setGatewayProviderStatus(payment.id, provider.rawStatus);
+    return payment;
+  }
 
   if (next !== payment.status) {
     setGatewayPaymentStatus(payment.id, next);
   }
+  if (provider.rawStatus) setGatewayProviderStatus(payment.id, provider.rawStatus);
   const fresh = getGatewayPayment(payment.id) ?? payment;
   if (fresh.status === "FAILED" || fresh.status === "CANCELED") {
     queueCallback(fresh, fresh.status);
@@ -102,6 +118,13 @@ export async function reconcileGatewayPayment(
   payment: GatewayPayment,
 ): Promise<GatewayPayment> {
   if (!payment.providerUuid || isGatewayFinal(payment.status)) return payment;
-  const provider = await fetchPaymentStatus(payment.providerUuid);
-  return applyGatewayProviderStatus(payment, provider);
+  const provider = getProvider(payment.providerId ?? "exenta");
+  if (!provider || !provider.configured) {
+    console.warn(
+      `[gateway] счёт ${payment.id}: провайдер ${payment.providerId ?? "exenta"} недоступен`,
+    );
+    return payment;
+  }
+  const providerStatus = await getAdapter(provider).fetchStatus(payment.providerUuid);
+  return applyGatewayProviderStatus(payment, providerStatus);
 }

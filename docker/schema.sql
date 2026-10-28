@@ -26,7 +26,7 @@ create index if not exists "generation_asset_generationId_idx" on "generation_as
 
 -- --- Платежи (пополнение баланса через Exenta Pay) ---
 
-create table if not exists "payment" ("id" text not null primary key, "userId" text not null references "user" ("id") on delete cascade, "providerUuid" text unique, "amountRub" integer not null, "creditRub" integer, "packId" text, "status" text not null check ("status" in ('CREATED','PENDING','SUCCESS','FAILED','CANCELLED')), "creditedAt" text, "createdAt" text not null, "updatedAt" text not null);
+create table if not exists "payment" ("id" text not null primary key, "userId" text not null references "user" ("id") on delete cascade, "providerId" text, "providerUuid" text unique, "providerStatus" text, "amountRub" integer not null, "creditRub" integer, "packId" text, "status" text not null check ("status" in ('CREATED','PENDING','SUCCESS','FAILED','CANCELLED')), "creditedAt" text, "createdAt" text not null, "updatedAt" text not null);
 
 create index if not exists "payment_userId_createdAt_idx" on "payment" ("userId", "createdAt" desc);
 
@@ -38,7 +38,7 @@ create index if not exists "cashx_outbox_due_idx" on "cashx_outbox" ("status", "
 
 -- --- Платёжный шлюз для внешних проектов (kazik) ---
 
-create table if not exists "gateway_payment" ("id" text not null primary key, "projectId" text not null, "externalId" text not null, "externalUserId" text, "purpose" text, "method" text, "amountRub" integer not null, "providerUuid" text unique, "redirectUrl" text, "returnUrl" text, "buyerIp" text, "status" text not null check ("status" in ('CREATED','PENDING','PAID','FAILED','CANCELED')), "paidAt" text, "createdAt" text not null, "updatedAt" text not null);
+create table if not exists "gateway_payment" ("id" text not null primary key, "projectId" text not null, "externalId" text not null, "externalUserId" text, "purpose" text, "method" text, "amountRub" integer not null, "providerId" text, "providerUuid" text unique, "providerStatus" text, "redirectUrl" text, "returnUrl" text, "buyerIp" text, "status" text not null check ("status" in ('CREATED','PENDING','PAID','FAILED','CANCELED')), "paidAt" text, "createdAt" text not null, "updatedAt" text not null);
 
 create unique index if not exists "gateway_payment_project_external_idx" on "gateway_payment" ("projectId", "externalId");
 
@@ -47,6 +47,16 @@ create index if not exists "gateway_payment_providerUuid_idx" on "gateway_paymen
 create table if not exists "gateway_outbox" ("id" integer primary key autoincrement, "eventId" text not null unique, "projectId" text not null, "paymentId" text not null, "payload" text not null, "status" text not null default 'pending' check ("status" in ('pending','sent','dead')), "attempts" integer not null default 0, "nextAttemptAt" text not null, "lastError" text, "createdAt" text not null);
 
 create index if not exists "gateway_outbox_due_idx" on "gateway_outbox" ("status", "nextAttemptAt");
+
+-- --- Платёжные провайдеры (админка) ---
+
+create table if not exists "payment_provider" ("id" text not null primary key, "name" text not null, "kind" text not null default 'http', "config" text not null, "enabled" integer not null default 1, "sortOrder" integer not null default 100, "createdAt" text not null, "updatedAt" text not null);
+
+create table if not exists "payment_event" ("id" integer primary key autoincrement, "providerId" text not null, "eventId" text not null, "paymentId" text, "gatewayPaymentId" text, "rawStatus" text not null, "mappedStatus" text not null, "amount" text, "currency" text, "payload" text not null, "createdAt" text not null);
+
+create unique index if not exists "payment_event_provider_event_idx" on "payment_event" ("providerId", "eventId");
+
+create index if not exists "payment_event_payment_idx" on "payment_event" ("paymentId");
 
 -- --- Настройки витрины (админка) ---
 

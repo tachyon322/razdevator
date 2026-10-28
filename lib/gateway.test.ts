@@ -146,11 +146,18 @@ test("статусы Exenta маппятся в статусы шлюза", () =
 
 test("оплата: зачисление идемпотентно, колбэк ставится один раз", () => {
   const payment = newGatewayPayment("p-paid", 2000);
-  const attached = db.attachGatewayProvider(payment.id, "uuid-paid", "https://qr.example/1");
+  const attached = db.attachGatewayProvider(payment.id, {
+    providerId: "exenta",
+    providerUuid: "uuid-paid",
+    redirectUrl: "https://qr.example/1",
+    status: "PENDING",
+    providerStatus: "PENDING",
+  });
   assert.equal(attached.status, "PENDING");
 
   const paid = applyGatewayProviderStatus(attached, {
-    uuid: "uuid-paid",
+    providerUuid: "uuid-paid",
+    rawStatus: "SUCCESS",
     status: "SUCCESS",
     amount: "200000",
   });
@@ -159,7 +166,8 @@ test("оплата: зачисление идемпотентно, колбэк 
 
   // Повторная доставка вебхука ничего не меняет и не дублирует колбэк.
   const again = applyGatewayProviderStatus(paid, {
-    uuid: "uuid-paid",
+    providerUuid: "uuid-paid",
+    rawStatus: "SUCCESS",
     status: "SUCCESS",
     amount: "200000",
   });
@@ -182,9 +190,16 @@ test("оплата: зачисление идемпотентно, колбэк 
 
 test("расхождение суммы не зачисляет счёт", () => {
   const payment = newGatewayPayment("p-mismatch", 1000);
-  const attached = db.attachGatewayProvider(payment.id, "uuid-mismatch", "https://qr.example/2");
+  const attached = db.attachGatewayProvider(payment.id, {
+    providerId: "exenta",
+    providerUuid: "uuid-mismatch",
+    redirectUrl: "https://qr.example/2",
+    status: "PENDING",
+    providerStatus: "PENDING",
+  });
   const result = applyGatewayProviderStatus(attached, {
-    uuid: "uuid-mismatch",
+    providerUuid: "uuid-mismatch",
+    rawStatus: "SUCCESS",
     status: "SUCCESS",
     amount: "1",
   });
@@ -195,9 +210,16 @@ test("расхождение суммы не зачисляет счёт", () =>
 
 test("неуспех: статус не откатывает оплаченный счёт и шлёт колбэк", () => {
   const failed = newGatewayPayment("p-failed", 500);
-  const attachedFailed = db.attachGatewayProvider(failed.id, "uuid-failed", "https://qr.example/3");
+  const attachedFailed = db.attachGatewayProvider(failed.id, {
+    providerId: "exenta",
+    providerUuid: "uuid-failed",
+    redirectUrl: "https://qr.example/3",
+    status: "PENDING",
+    providerStatus: "PENDING",
+  });
   const afterFail = applyGatewayProviderStatus(attachedFailed, {
-    uuid: "uuid-failed",
+    providerUuid: "uuid-failed",
+    rawStatus: "CANCELLED",
     status: "CANCELLED",
   });
   assert.equal(afterFail.status, "CANCELED");
@@ -207,16 +229,24 @@ test("неуспех: статус не откатывает оплаченны�
   assert.equal(payload.status, "CANCELED");
 
   const paid = newGatewayPayment("p-no-downgrade", 500);
-  const attachedPaid = db.attachGatewayProvider(paid.id, "uuid-no-downgrade", "https://qr.example/4");
+  const attachedPaid = db.attachGatewayProvider(paid.id, {
+    providerId: "exenta",
+    providerUuid: "uuid-no-downgrade",
+    redirectUrl: "https://qr.example/4",
+    status: "PENDING",
+    providerStatus: "PENDING",
+  });
   const paidRow = applyGatewayProviderStatus(attachedPaid, {
-    uuid: "uuid-no-downgrade",
+    providerUuid: "uuid-no-downgrade",
+    rawStatus: "SUCCESS",
     status: "SUCCESS",
     amount: "50000",
   });
   assert.equal(paidRow.status, "PAID");
 
   const afterCancel = applyGatewayProviderStatus(paidRow, {
-    uuid: "uuid-no-downgrade",
+    providerUuid: "uuid-no-downgrade",
+    rawStatus: "CANCELLED",
     status: "CANCELLED",
   });
   assert.equal(afterCancel.status, "PAID");
@@ -225,9 +255,19 @@ test("неуспех: статус не откатывает оплаченны�
 
 test("чужой uuid провайдера отклоняется", () => {
   const payment = newGatewayPayment("p-foreign-uuid", 300);
-  const attached = db.attachGatewayProvider(payment.id, "uuid-own", "https://qr.example/5");
+  const attached = db.attachGatewayProvider(payment.id, {
+    providerId: "exenta",
+    providerUuid: "uuid-own",
+    redirectUrl: "https://qr.example/5",
+    status: "PENDING",
+    providerStatus: "PENDING",
+  });
   assert.throws(() =>
-    applyGatewayProviderStatus(attached, { uuid: "uuid-other", status: "SUCCESS" }),
+    applyGatewayProviderStatus(attached, {
+      providerUuid: "uuid-other",
+      rawStatus: "SUCCESS",
+      status: "SUCCESS",
+    }),
   );
 });
 
@@ -250,13 +290,16 @@ test("воркер очереди: успешная доставка и повт
   );
 
   const retryPayment = newGatewayPayment("p-retry", 300);
-  const retryAttached = db.attachGatewayProvider(
-    retryPayment.id,
-    "uuid-retry",
-    "https://qr.example/7",
-  );
+  const retryAttached = db.attachGatewayProvider(retryPayment.id, {
+    providerId: "exenta",
+    providerUuid: "uuid-retry",
+    redirectUrl: "https://qr.example/7",
+    status: "PENDING",
+    providerStatus: "PENDING",
+  });
   applyGatewayProviderStatus(retryAttached, {
-    uuid: "uuid-retry",
+    providerUuid: "uuid-retry",
+    rawStatus: "CANCELLED",
     status: "CANCELLED",
   });
 

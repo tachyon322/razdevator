@@ -1,19 +1,16 @@
 import { isIP } from "node:net";
 import { NextResponse, type NextRequest } from "next/server";
 import {
-  attachGatewayProvider,
   countOpenGatewayPayments,
-  createGatewayPayment,
   getGatewayPaymentByExternalId,
-  setGatewayPaymentStatus,
 } from "@/lib/db";
-import { ExentaError, createInvoice } from "@/lib/exenta";
+import { ExentaError } from "@/lib/exenta";
 import {
   allowedReturnOrigin,
   getGatewayProject,
   verifyGatewayRequest,
 } from "@/lib/gateway";
-import { applyGatewayProviderStatus } from "@/lib/gateway-payments";
+import { NoProviderError, createGatewayInvoice } from "@/lib/payment-create";
 import { MAX_TOPUP, MIN_TOPUP, isValidTopUp } from "@/lib/plans";
 
 export const runtime = "nodejs";
@@ -104,51 +101,36 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const payment = createGatewayPayment({
-    projectId: project.id,
-    externalId,
-    externalUserId: shortString(body.externalUserId),
-    purpose: shortString(body.purpose, 32),
-    method: shortString(body.method, 32),
-    amountRub,
-    returnUrl: allowedReturnOrigin(
-      project,
-      typeof body.returnUrl === "string" ? body.returnUrl : null,
-    ),
-    buyerIp: buyerIp(request, body.buyerIp),
-  });
-
-  // В счёте Exenta фигурирует только наш домен; адрес нейтральный, без токена —
-  // страница всё равно ничего не показывает.
-  const returnPageUrl = `${siteUrl(request)}/pay/${payment.id}`;
-
   try {
-    const invoice = await createInvoice({
+    const result = await createGatewayInvoice({
+      project,
+      externalId,
+      externalUserId: shortString(body.externalUserId),
+      purpose: shortString(body.purpose, 32),
+      method: shortString(body.method, 32),
       amountRub,
-      description: project.description,
-      buyerIp: payment.buyerIp,
-      successUrl: returnPageUrl,
-      failedUrl: returnPageUrl,
+      returnUrl: allowedReturnOrigin(
+        project,
+        typeof body.returnUrl === "string" ? body.returnUrl : null,
+      ),
+      buyerIp: buyerIp(request, body.buyerIp),
+      siteUrl: siteUrl(request),
     });
-    // Успех проводит только сверка (applyGatewayProviderStatus), но счёт,
-    // который провайдер сразу отклонил, проект узнаёт колбэком отсюда.
-    const attached = attachGatewayProvider(
-      payment.id,
-      invoice.uuid,
-      invoice.redirectUrl,
-    );
-    const fresh = applyGatewayProviderStatus(attached, invoice);
-    console.info(
-      `[gateway] счёт ${fresh.id} проекта ${project.id} на ${amountRub} ₽: ${fresh.status}`,
-    );
     return NextResponse.json({
-      id: fresh.id,
-      paymentUrl: fresh.redirectUrl,
-      status: fresh.status,
+      id: result.payment.id,
+      paymentUrl: result.redirectUrl,
+      status: result.payment.status,
     });
   } catch (error) {
-    console.error(`[gateway] не удалось создать счёт ${payment.id}:`, error);
-    setGatewayPaymentStatus(payment.id, "FAILED");
+    if (error instanceof NoProviderError) {
+      console.error(`[gateway] нет доступных провайдеров для ${project.id}`);
+      return errorResponse(
+        503,
+        "PROVIDER_UNAVAILABLE",
+        "Платёжный сервис временно недоступен. Попробуйте позже.",
+      );
+    }
+    console.error(`[gateway] не удалось создать счёт:`, error);
     return errorResponse(
       502,
       "PROVIDER_UNAVAILABLE",
