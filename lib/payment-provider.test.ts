@@ -77,6 +77,10 @@ test("валидация Cashera-пресета проходит, метод —
   assert.equal(config.statusMap.paid, "SUCCESS");
   assert.equal(config.statusMap.refunded, "IGNORE");
   assert.equal(NSPK_PAYMENT_METHOD, "sbp");
+  // Cashera не выдаёт sk_ для X-Secret: подпись не проверяем, статус
+  // перечитываем из API.
+  assert.equal(config.webhook.verify.type, "none");
+  assert.equal(config.webhook.trustBody, false);
 });
 
 test("валидация отклоняет пустые секреты, http и неизвестные подстановки", () => {
@@ -251,8 +255,16 @@ test("fetchStatus: paid → SUCCESS, сумма и валюта сохраняю
   assert.equal(status.currency, "RUB");
 });
 
-test("вебхук Cashera: заголовки проверяются, событие разбирается", () => {
-  const adapter = getAdapter(provider(casheraConfig()));
+test("Cashera: сохраняется только с API-ключом, вебхук без подписи", () => {
+  const result = validateHttpProviderConfig({
+    ...rawPreset(),
+    secrets: { apiKey: "pk_test", apiSecret: "" },
+  });
+  assert.ok("config" in result);
+  const adapter = getAdapter(provider(result.config));
+  // Доверять телу нельзя — статус перечитывается из API.
+  assert.equal(adapter.trustBody, false);
+
   const body = JSON.stringify({
     event: "transaction.status_updated",
     transaction: {
@@ -262,22 +274,8 @@ test("вебхук Cashera: заголовки проверяются, собы�
       currency: "RUB",
     },
   });
-
-  assert.equal(
-    adapter.verifyWebhook(
-      new Headers({ "x-api-key": "pk_test", "x-secret": "sk_test" }),
-      body,
-    ),
-    true,
-  );
-  assert.equal(
-    adapter.verifyWebhook(
-      new Headers({ "x-api-key": "pk_test", "x-secret": "wrong" }),
-      body,
-    ),
-    false,
-  );
-  assert.equal(adapter.verifyWebhook(new Headers(), body), false);
+  // Заголовков X-Api-Key/X-Secret может не быть — подпись не проверяем.
+  assert.equal(adapter.verifyWebhook(new Headers(), body), true);
 
   const parsed = adapter.parseWebhook(body);
   assert.equal(parsed.eventId, "u-1:paid");
@@ -285,6 +283,17 @@ test("вебхук Cashera: заголовки проверяются, собы�
   assert.equal(parsed.status, "SUCCESS");
   assert.equal(parsed.amount, "49900");
   assert.equal(parsed.currency, "RUB");
+});
+
+test("вебхук без подписи требует trustBody:false", () => {
+  const raw = rawPreset();
+  (raw.webhook as Record<string, unknown>).trustBody = true;
+  const result = validateHttpProviderConfig({
+    ...raw,
+    secrets: { apiKey: "pk_test", apiSecret: "" },
+  });
+  assert.ok("errors" in result);
+  assert.ok(result.errors["webhook.trustBody"]);
 });
 
 test("вебхук Cashera: служебные события игнорируются, платёжные — нет", () => {

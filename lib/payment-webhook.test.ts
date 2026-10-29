@@ -26,18 +26,51 @@ sqlite
   )
   .run("u-1", "free", 0, 0);
 
+// Общий обработчик проверяем на провайдере с подписью в заголовках; реальный
+// пресет Cashera (без sk_) создаётся ниже.
+const signedTestConfig = structuredClone(CASHERA_PRESET.config);
+signedTestConfig.webhook.verify = {
+  type: "headers",
+  headers: [
+    { header: "x-api-key", secret: "apiKey" },
+    { header: "x-secret", secret: "apiSecret" },
+  ],
+};
+signedTestConfig.webhook.trustBody = true;
+
 const validated = validateHttpProviderConfig({
-  ...structuredClone(CASHERA_PRESET.config),
+  ...signedTestConfig,
   secrets: { apiKey: "pk_test", apiSecret: "sk_test" },
 });
 if ("errors" in validated) throw new Error(JSON.stringify(validated.errors));
 const provider = db.createPaymentProvider({
-  name: "Cashera",
+  name: "Cashera (тест, подпись заголовками)",
   config: JSON.stringify({
     ...validated.config,
     secrets: {
       apiKey: sealSecret("pk_test"),
       apiSecret: sealSecret("sk_test"),
+    },
+  }),
+  enabled: true,
+  sortOrder: 100,
+});
+
+// Реальный пресет Cashera: sk_ нет, вебхук без подписи, статус из API.
+const casheraUnsignedValidated = validateHttpProviderConfig({
+  ...structuredClone(CASHERA_PRESET.config),
+  secrets: { apiKey: "pk_test", apiSecret: "" },
+});
+if ("errors" in casheraUnsignedValidated) {
+  throw new Error(JSON.stringify(casheraUnsignedValidated.errors));
+}
+const casheraUnsignedProvider = db.createPaymentProvider({
+  name: "Cashera (без sk_)",
+  config: JSON.stringify({
+    ...casheraUnsignedValidated.config,
+    secrets: {
+      apiKey: sealSecret("pk_test"),
+      apiSecret: "",
     },
   }),
   enabled: true,
@@ -416,6 +449,98 @@ test("ParityPay: сумма в вебхуке сверяется в копейк
       body: JSON.stringify(payload),
     }),
   );
+  assert.equal(response.status, 200);
+  assert.equal(db.getPayment(created.id)?.status, "PENDING");
+  assert.equal(balance(), before);
+  const event = sqlite
+    .prepare(`SELECT "mappedStatus" FROM "payment_event" WHERE "paymentId" = ?`)
+    .get(created.id) as { mappedStatus: string } | undefined;
+  assert.equal(event?.mappedStatus, "MISMATCH");
+});
+
+test("Cashera без sk_: неподписанный вебхук перечитывает статус из API", async () => {
+  const created = db.createPayment({ userId: "u-1", amountRub: 1000 });
+  db.attachProviderPayment(created.id, {
+    providerId: casheraUnsignedProvider.id,
+    providerUuid: "c-unsigned",
+    status: "PENDING",
+    providerStatus: "pending",
+  });
+
+  const body = JSON.stringify({
+    event: "transaction.status_updated",
+    transaction: {
+      uuid: "c-unsigned",
+      status: "paid",
+      amount: 100000,
+      currency: "RUB",
+    },
+  });
+  const urls: string[] = [];
+  const before = balance();
+
+  const response = await handleProviderWebhook(
+    casheraUnsignedProvider.id,
+    new Request(
+      `https://site.example/api/payments/webhook/${casheraUnsignedProvider.id}`,
+      { method: "POST", body },
+    ),
+    {
+      fetch: async (url) => {
+        urls.push(String(url));
+        return new Response(
+          JSON.stringify({
+            uuid: "c-unsigned",
+            status: "paid",
+            amount: 100000,
+            currency: "RUB",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(urls.length, 1);
+  assert.match(urls[0], /integration\/transactions\/c-unsigned$/);
+  assert.equal(db.getPayment(created.id)?.status, "SUCCESS");
+  assert.equal(balance(), before + 1000);
+});
+
+test("Cashera без sk_: подделанная сумма не зачисляется и не ходит в API", async () => {
+  const created = db.createPayment({ userId: "u-1", amountRub: 1000 });
+  db.attachProviderPayment(created.id, {
+    providerId: casheraUnsignedProvider.id,
+    providerUuid: "c-forged",
+    status: "PENDING",
+    providerStatus: "pending",
+  });
+
+  const body = JSON.stringify({
+    event: "transaction.status_updated",
+    transaction: {
+      uuid: "c-forged",
+      status: "paid",
+      amount: 1,
+      currency: "RUB",
+    },
+  });
+  const before = balance();
+
+  const response = await handleProviderWebhook(
+    casheraUnsignedProvider.id,
+    new Request(
+      `https://site.example/api/payments/webhook/${casheraUnsignedProvider.id}`,
+      { method: "POST", body },
+    ),
+    {
+      fetch: async () => {
+        throw new Error("при несовпадении суммы API дергать не нужно");
+      },
+    },
+  );
+
   assert.equal(response.status, 200);
   assert.equal(db.getPayment(created.id)?.status, "PENDING");
   assert.equal(balance(), before);

@@ -95,6 +95,25 @@ Exenta остаётся в `env` (`PAYMENTS_*`) и на старом вебху�
 4. Для локальной разработки можно разрешить `http://` в `baseUrl` через
    `PAYMENT_PROVIDER_ALLOW_HTTP=1`; на проде — только `https://`.
 
+### Cashera
+
+- Пресет заполняет создание счёта (`POST /integration/transactions`) и
+  проверку статуса; все запросы идут с заголовком `X-Api-Key`. В админке ключ
+  `pk_…` вводится в поле **apiKey**.
+- Поле **apiSecret** можно оставить пустым: в кабинете Cashera не выдаёт
+  `sk_` (секрет для `X-Secret`), поэтому вебхук проверяется иначе.
+- `merchantId` для Cashera не нужен: касса определяется по `X-Api-Key`.
+- Вебхук принимается без проверки подписи (`verify.type: none`), но тело не
+  доверяется: в пресете `trustBody: false`, поэтому статус, сумму и валюту
+  приложение перечитывает из `GET /integration/transactions/{uuid}`.
+  Поддельный вебхук не может зачислить платёж — он лишь вызовет сверку.
+- Если Cashera всё-таки выдаст `sk_`, можно включить строгую проверку: в
+  JSON вебхука поставить
+  `verify: { "type": "headers", "headers": [
+  { "header": "x-api-key", "secret": "apiKey" },
+  { "header": "x-secret", "secret": "apiSecret" } ] }`,
+  `trustBody: true` и заполнить **apiSecret**.
+
 ### Monee
 
 - В пресете заполнены создание счёта (`/v2/order/create`), информация о счёте

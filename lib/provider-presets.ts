@@ -16,15 +16,17 @@ export interface ProviderPreset {
 }
 
 /**
- * Cashera: H2H API, суммы в копейках, создание счёта с `X-Api-Key`, вебхук
- * с парой заголовков `X-Api-Key`/`X-Secret`, статусы pending/paid/canceled/
- * failed/expired/refunded/chargeback. Метод оплаты — NSPK (`sbp`).
+ * Cashera: H2H API, суммы в копейках, создание счёта и статус с `X-Api-Key`.
+ * В кабинете Cashera не выдают `sk_` (секрет для `X-Secret`), поэтому вебхук
+ * принимаем без проверки подписи, а статус/сумму перечитываем через API:
+ * `trustBody:false`. Статусы pending/paid/canceled/failed/expired/refunded/
+ * chargeback. Метод оплаты — NSPK (`sbp`).
  */
 export const CASHERA_PRESET: ProviderPreset = {
   id: "cashera",
   name: "Cashera",
   description:
-    "H2H-платежи NSPK. Ключи из личного кабинета Cashera; вебхук — заголовки X-Api-Key и X-Secret.",
+    "H2H-платежи NSPK. Нужен только API-ключ pk_ (X-Api-Key); вебхук без подписи — статус перечитывается через API.",
   config: {
     version: 1,
     baseUrl: "https://api.cashera.cash/api/v1",
@@ -67,13 +69,11 @@ export const CASHERA_PRESET: ProviderPreset = {
       currency: ["currency"],
     },
     webhook: {
-      verify: {
-        type: "headers",
-        headers: [
-          { header: "x-api-key", secret: "apiKey" },
-          { header: "x-secret", secret: "apiSecret" },
-        ],
-      },
+      // Cashera не выдаёт sk_ для X-Secret, поэтому подпись не проверяем.
+      // Тело — только сигнал: статус, сумму и валюту перечитываем из API
+      // по X-Api-Key (trustBody:false), подделать вебхук и зачислить
+      // платёж нельзя.
+      verify: { type: "none" },
       uuid: ["transaction.uuid"],
       status: ["transaction.status"],
       amount: ["transaction.amount"],
@@ -83,7 +83,7 @@ export const CASHERA_PRESET: ProviderPreset = {
       // Платёжные события Cashera; webhook.test, выплаты и подписки
       // подтверждаем 2xx и не разбираем.
       events: ["transaction.status_updated"],
-      trustBody: true,
+      trustBody: false,
     },
     statusMap: {
       pending: "PENDING",

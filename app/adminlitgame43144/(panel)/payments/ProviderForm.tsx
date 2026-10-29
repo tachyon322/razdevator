@@ -112,7 +112,7 @@ const JSON_FIELDS: {
   {
     key: "webhookJson",
     label: "webhook — проверка и разбор вебхука",
-    hint: "verify.type: headers (сверка заголовков с секретом), hmac-sha256, sha256-sorted-body или hmac-sha256-sorted-values (значения полей в порядке ключей). trustBody: true — доверять статусу из тела. eventPath + events — обрабатывать только эти события, остальные (webhook.test, выплаты) подтверждать 2xx.",
+    hint: "verify.type: none (без подписи — только с trustBody:false, статус перечитывается из API), headers (сверка заголовков с секретом), hmac-sha256, sha256-sorted-body или hmac-sha256-sorted-values (значения полей в порядке ключей). trustBody: true — доверять статусу из тела. eventPath + events — обрабатывать только эти события, остальные (webhook.test, выплаты) подтверждать 2xx.",
     placeholder:
       '{\n  "verify": {\n    "type": "headers",\n    "headers": [{ "header": "x-api-key", "secret": "apiKey" }]\n  },\n  "uuid": ["order.id"],\n  "status": ["order.status"],\n  "eventId": ["order.id", "order.status"],\n  "eventPath": "event",\n  "events": ["order.status_updated"],\n  "trustBody": true\n}',
     rows: 11,

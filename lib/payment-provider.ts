@@ -58,6 +58,15 @@ export interface HttpProviderConfig {
   };
   webhook: {
     verify:
+      | {
+          /**
+           * Без проверки подписи (провайдер не выдаёт секрет вебхука).
+           * Разрешён только вместе с `trustBody: false`: статус и сумму
+           * перечитываем из API провайдера, поэтому подделка запроса не
+           * может зачислить платёж.
+           */
+          type: "none";
+        }
       | { type: "headers"; headers: { header: string; secret: "apiKey" | "apiSecret" }[] }
       | {
           type: "hmac-sha256";
@@ -745,6 +754,9 @@ function validateVerify(
     errors["webhook.verify"] = "Ожидается объект проверки вебхука";
     return undefined;
   }
+  if (raw.type === "none") {
+    return { type: "none" };
+  }
   if (raw.type === "headers") {
     if (!Array.isArray(raw.headers) || raw.headers.length === 0) {
       errors["webhook.verify.headers"] = "Укажите заголовки для сверки";
@@ -849,7 +861,7 @@ function validateVerify(
     };
   }
   errors["webhook.verify.type"] =
-    "type — headers, hmac-sha256, sha256-sorted-body или hmac-sha256-sorted-values";
+    "type — none, headers, hmac-sha256, sha256-sorted-body или hmac-sha256-sorted-values";
   return undefined;
 }
 
@@ -1056,6 +1068,10 @@ export function validateHttpProviderConfig(
   }
   const trustBody =
     webhookRaw?.trustBody === undefined ? true : webhookRaw.trustBody === true;
+  if (verify?.type === "none" && trustBody) {
+    errors["webhook.trustBody"] =
+      "verify.type=none требует trustBody:false: без подписи статус из тела не доверяем и перечитываем из API";
+  }
   if (webhookEvents && !webhookEventPath) {
     errors["webhook.eventPath"] = "Для events нужен eventPath";
   }
@@ -1090,7 +1106,7 @@ export function validateHttpProviderConfig(
   if (verify) {
     if (verify.type === "headers") {
       for (const item of verify.headers) verifySecrets[item.secret] = true;
-    } else {
+    } else if (verify.type !== "none") {
       verifySecrets[verify.secret] = true;
     }
   }
@@ -1369,7 +1385,10 @@ function httpAdapter(provider: ResolvedProvider, deps: ProviderDeps): ProviderAd
       const verify = config.webhook.verify;
       let ok = false;
 
-      if (verify.type === "headers") {
+      if (verify.type === "none") {
+        // Подписи нет: тело — только сигнал, статус перечитывается из API.
+        ok = true;
+      } else if (verify.type === "headers") {
         ok = verify.headers.every(({ header, secret }) =>
           safeEqual(config.secrets[secret], headers.get(header) ?? ""),
         );
