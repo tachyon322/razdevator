@@ -96,7 +96,7 @@ const JSON_FIELDS: {
   {
     key: "responseJson",
     label: "response — разбор ответа на создание счёта",
-    hint: "Пути в JSON ответа: uuid и redirectUrl обязательны, status — если провайдер отдаёт его сразу.",
+    hint: "Пути в JSON ответа: uuid обязателен; redirectUrl — если оплата на странице провайдера, либо requisites (H2H: credentials, type, bank, owner, payAmount, comment) — тогда реквизиты показываем у себя; status — если провайдер отдаёт его сразу.",
     placeholder:
       '{\n  "uuid": ["id"],\n  "redirectUrl": ["payment_url"],\n  "status": ["status"]\n}',
     rows: 7,

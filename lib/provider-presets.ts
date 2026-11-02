@@ -269,8 +269,103 @@ export const PARITYPAY_PRESET: ProviderPreset = {
   },
 };
 
+/**
+ * ExpressApp (api.expressapp.info): host-to-host. `POST /v1/payment/h2h`
+ * сразу возвращает реквизиты (`data.credentials`), страницы оплаты у
+ * провайдера нет — покупателю показываем их у себя. Авторизация —
+ * `Authorization: Bearer <API-ключ>`, суммы — decimal-рубли строкой.
+ *
+ * Метод оплаты зашит в теле запроса (`qr-code` — PNG-картинка QR в
+ * `credentials`). Другие значения из API: `sbp`, `card`, `nspk`, `deep-link`,
+ * `account`, `acq` — меняются правкой `create.body.method` в админке; вид
+ * реквизитов (картинка / ссылка / текст) определяется по содержимому.
+ *
+ * Вебхук: `Authorization: Bearer <токен вебхука>` (токен задаётся в кабинете и
+ * вводится в поле apiSecret). Тело вебхука — только сигнал: статус перечитываем
+ * через `GET /v1/payment/status`. `CONFIRMED` не считаем оплатой — зачисляем по
+ * `PAID`.
+ */
+export const EXPRESSAPP_PRESET: ProviderPreset = {
+  id: "expressapp",
+  name: "ExpressApp",
+  description:
+    "H2H: реквизиты (QR/ссылка/номер) приходят в ответе и показываются у нас. apiKey — API-ключ, apiSecret — токен вебхука (Bearer).",
+  config: {
+    version: 1,
+    baseUrl: "https://api.expressapp.info",
+    currency: "RUB",
+    amountMultiplier: 1,
+    descriptionMaxLength: 255,
+    timeoutMs: 15000,
+    // clientOrderId уникальность не гарантирует: повтор после таймаута мог бы
+    // создать второй счёт, поэтому create не повторяем.
+    retries: 0,
+    merchantId: "",
+    create: {
+      method: "POST",
+      path: "/v1/payment/h2h",
+      headers: {
+        Authorization: "Bearer {{apiKey}}",
+        "Content-Type": "application/json",
+      },
+      body: {
+        amount: "{{amountRubText}}",
+        currency: "rub",
+        method: "qr-code",
+        clientOrderId: "{{externalId}}",
+        webhook: "{{callbackUrl}}",
+      },
+    },
+    response: {
+      uuid: ["data.payment_id"],
+      status: ["data.status"],
+      requisites: {
+        credentials: ["data.credentials"],
+        type: ["data.type"],
+        bank: ["data.bank"],
+        owner: ["data.account_owner_name"],
+        payAmount: ["data.need_to_pay"],
+        comment: ["data.comment"],
+      },
+    },
+    status: {
+      method: "GET",
+      path: "/v1/payment/status?id={{uuid}}",
+      headers: { Authorization: "Bearer {{apiKey}}" },
+      uuid: ["payment_id"],
+      status: ["status"],
+      amount: ["amount"],
+      currency: ["currency"],
+    },
+    webhook: {
+      verify: {
+        type: "headers",
+        headers: [
+          { header: "authorization", secret: "apiSecret", prefix: "Bearer " },
+        ],
+      },
+      uuid: ["payment_id"],
+      status: ["status"],
+      eventId: ["payment_id", "status"],
+      trustBody: false,
+    },
+    statusMap: {
+      NEW: "PENDING",
+      PENDING: "PENDING",
+      CONFIRMED: "PENDING",
+      PAID: "SUCCESS",
+      SUCCESS: "SUCCESS",
+      EXPIRED: "CANCELLED",
+      CANCELED: "CANCELLED",
+      FAILED: "FAILED",
+      FAIL: "FAILED",
+    },
+  },
+};
+
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   CASHERA_PRESET,
+  EXPRESSAPP_PRESET,
   MONEE_PRESET,
   PARITYPAY_PRESET,
 ];

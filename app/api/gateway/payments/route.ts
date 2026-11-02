@@ -11,6 +11,7 @@ import {
   verifyGatewayRequest,
 } from "@/lib/gateway";
 import { NoProviderError, createGatewayInvoice } from "@/lib/payment-create";
+import { parseRequisites } from "@/lib/payment-requisites";
 import { MAX_TOPUP, MIN_TOPUP, isValidTopUp } from "@/lib/plans";
 
 export const runtime = "nodejs";
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
     amountRub?: unknown;
     buyerIp?: unknown;
     returnUrl?: unknown;
+    h2h?: unknown;
   };
   try {
     body = JSON.parse(rawBody) as typeof body;
@@ -89,6 +91,9 @@ export async function POST(request: NextRequest) {
       id: existing.id,
       paymentUrl: existing.redirectUrl,
       status: existing.status,
+      ...(body.h2h === true && existing.requisites
+        ? { requisites: parseRequisites(existing.requisites) }
+        : {}),
     });
   }
 
@@ -115,11 +120,16 @@ export async function POST(request: NextRequest) {
       ),
       buyerIp: buyerIp(request, body.buyerIp),
       siteUrl: siteUrl(request),
+      h2h: body.h2h === true,
     });
     return NextResponse.json({
       id: result.payment.id,
       paymentUrl: result.redirectUrl,
       status: result.payment.status,
+      // H2H: реквизиты для показа у проекта; без флага `h2h` не отдаём.
+      ...(body.h2h === true && result.requisites
+        ? { requisites: result.requisites }
+        : {}),
     });
   } catch (error) {
     if (error instanceof NoProviderError) {

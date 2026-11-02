@@ -26,7 +26,7 @@ create index if not exists "generation_asset_generationId_idx" on "generation_as
 
 -- --- Платежи (пополнение баланса через Exenta Pay) ---
 
-create table if not exists "payment" ("id" text not null primary key, "userId" text not null references "user" ("id") on delete cascade, "providerId" text, "providerUuid" text unique, "providerStatus" text, "amountRub" integer not null, "creditRub" integer, "packId" text, "status" text not null check ("status" in ('CREATED','PENDING','SUCCESS','FAILED','CANCELLED')), "creditedAt" text, "createdAt" text not null, "updatedAt" text not null);
+create table if not exists "payment" ("id" text not null primary key, "userId" text not null references "user" ("id") on delete cascade, "providerId" text, "providerUuid" text unique, "providerStatus" text, "requisites" text, "amountRub" integer not null, "creditRub" integer, "packId" text, "status" text not null check ("status" in ('CREATED','PENDING','SUCCESS','FAILED','CANCELLED')), "creditedAt" text, "createdAt" text not null, "updatedAt" text not null);
 
 create index if not exists "payment_userId_createdAt_idx" on "payment" ("userId", "createdAt" desc);
 
@@ -38,7 +38,7 @@ create index if not exists "cashx_outbox_due_idx" on "cashx_outbox" ("status", "
 
 -- --- Платёжный шлюз для внешних проектов (kazik) ---
 
-create table if not exists "gateway_payment" ("id" text not null primary key, "projectId" text not null, "externalId" text not null, "externalUserId" text, "purpose" text, "method" text, "amountRub" integer not null, "providerId" text, "providerUuid" text unique, "providerStatus" text, "redirectUrl" text, "returnUrl" text, "buyerIp" text, "status" text not null check ("status" in ('CREATED','PENDING','PAID','FAILED','CANCELED')), "paidAt" text, "createdAt" text not null, "updatedAt" text not null);
+create table if not exists "gateway_payment" ("id" text not null primary key, "projectId" text not null, "externalId" text not null, "externalUserId" text, "purpose" text, "method" text, "amountRub" integer not null, "providerId" text, "providerUuid" text unique, "providerStatus" text, "redirectUrl" text, "requisites" text, "returnUrl" text, "buyerIp" text, "status" text not null check ("status" in ('CREATED','PENDING','PAID','FAILED','CANCELED')), "paidAt" text, "createdAt" text not null, "updatedAt" text not null);
 
 create unique index if not exists "gateway_payment_project_external_idx" on "gateway_payment" ("projectId", "externalId");
 

@@ -108,6 +108,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       id: result.payment.id,
       redirectUrl: result.redirectUrl,
+      requisites: result.requisites,
     });
   } catch (error) {
     if (error instanceof NoProviderError) {

@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS "payment" (
   "providerId"   TEXT,
   "providerUuid" TEXT UNIQUE,
   "providerStatus" TEXT,
+  "requisites"   TEXT,
   "amountRub"    INTEGER NOT NULL,
   "creditRub"    INTEGER,
   "packId"       TEXT,
@@ -137,6 +138,7 @@ CREATE TABLE IF NOT EXISTS "gateway_payment" (
   "providerUuid"   TEXT UNIQUE,
   "providerStatus" TEXT,
   "redirectUrl"    TEXT,
+  "requisites"     TEXT,
   "returnUrl"      TEXT,
   "buyerIp"        TEXT,
   "status"         TEXT NOT NULL CHECK ("status" IN ('CREATED','PENDING','PAID','FAILED','CANCELED')),
@@ -296,6 +298,10 @@ function ensurePaymentColumns(instance: DatabaseType): void {
   if (!columns.has("providerStatus")) {
     instance.exec(`ALTER TABLE "payment" ADD COLUMN "providerStatus" TEXT`);
   }
+  if (!columns.has("requisites")) {
+    // H2H: реквизиты оплаты (JSON), которые показываем покупателю у нас.
+    instance.exec(`ALTER TABLE "payment" ADD COLUMN "requisites" TEXT`);
+  }
 }
 
 /** Новые колонки счёта шлюза: какая платёжка выставила счёт и её статус. */
@@ -312,6 +318,9 @@ function ensureGatewayPaymentColumns(instance: DatabaseType): void {
   }
   if (!columns.has("providerStatus")) {
     instance.exec(`ALTER TABLE "gateway_payment" ADD COLUMN "providerStatus" TEXT`);
+  }
+  if (!columns.has("requisites")) {
+    instance.exec(`ALTER TABLE "gateway_payment" ADD COLUMN "requisites" TEXT`);
   }
 }
 
@@ -695,6 +704,8 @@ export interface Payment {
   providerUuid: string | null;
   /** Статус в терминах провайдера — для диагностики. */
   providerStatus: string | null;
+  /** H2H: реквизиты оплаты (JSON `PaymentRequisites`); NULL у обычных счетов. */
+  requisites: string | null;
   /** Сколько платит покупатель. */
   amountRub: number;
   /** Сколько зачислить на баланс; NULL у старых записей — значит amountRub. */
@@ -776,6 +787,8 @@ export interface AttachProviderPaymentInput {
   providerUuid: string;
   status: Exclude<PaymentStatus, "SUCCESS">;
   providerStatus?: string | null;
+  /** JSON реквизитов H2H-счёта. */
+  requisites?: string | null;
 }
 
 export function attachProviderPayment(
@@ -786,13 +799,14 @@ export function attachProviderPayment(
   stmt(
     `UPDATE "payment"
         SET "providerId" = ?, "providerUuid" = ?, "status" = ?,
-            "providerStatus" = ?, "updatedAt" = ?
+            "providerStatus" = ?, "requisites" = ?, "updatedAt" = ?
       WHERE "id" = ?`,
   ).run(
     input.providerId,
     input.providerUuid,
     input.status,
     input.providerStatus ?? null,
+    input.requisites ?? null,
     new Date().toISOString(),
     id,
   );
@@ -929,6 +943,8 @@ export interface GatewayPayment {
   /** Статус в терминах провайдера — для диагностики. */
   providerStatus: string | null;
   redirectUrl: string | null;
+  /** H2H: реквизиты оплаты (JSON `PaymentRequisites`); NULL у обычных счетов. */
+  requisites: string | null;
   /** Куда вернуть покупателя с нашей страницы возврата. */
   returnUrl: string | null;
   buyerIp: string | null;
@@ -1025,6 +1041,8 @@ export interface AttachGatewayProviderInput {
   redirectUrl: string;
   status: Exclude<GatewayPaymentStatus, "PAID">;
   providerStatus?: string | null;
+  /** JSON реквизитов H2H-счёта. */
+  requisites?: string | null;
 }
 
 export function attachGatewayProvider(
@@ -1035,12 +1053,13 @@ export function attachGatewayProvider(
   stmt(
     `UPDATE "gateway_payment"
         SET "providerId" = ?, "providerUuid" = ?, "redirectUrl" = ?,
-            "status" = ?, "providerStatus" = ?, "updatedAt" = ?
+            "requisites" = ?, "status" = ?, "providerStatus" = ?, "updatedAt" = ?
       WHERE "id" = ? AND "paidAt" IS NULL`,
   ).run(
     input.providerId,
     input.providerUuid,
     input.redirectUrl,
+    input.requisites ?? null,
     input.status,
     input.providerStatus ?? null,
     new Date().toISOString(),

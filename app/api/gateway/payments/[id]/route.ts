@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getGatewayPayment } from "@/lib/db";
 import { getGatewayProject, verifyGatewayRequest } from "@/lib/gateway";
 import { reconcileGatewayPayment } from "@/lib/gateway-payments";
+import { parseRequisites } from "@/lib/payment-requisites";
 
 export const runtime = "nodejs";
 
@@ -40,5 +41,9 @@ export async function GET(
     amountRub: payment.amountRub,
     status: payment.status,
     paidAt: payment.paidAt,
+    // H2H: пока счёт не завершён, проект может восстановить реквизиты.
+    ...(payment.status === "PENDING" || payment.status === "CREATED"
+      ? { requisites: parseRequisites(payment.requisites) }
+      : {}),
   });
 }

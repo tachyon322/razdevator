@@ -12,6 +12,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { PaymentStatus } from "./db";
 import { openSecret } from "./provider-secrets";
+import { buildRequisites, type PaymentRequisites } from "./payment-requisites";
 import {
   createInvoice as createExentaInvoice,
   fetchPaymentStatus as fetchExentaStatus,
@@ -46,8 +47,22 @@ export interface HttpProviderConfig {
   };
   response: {
     uuid: string[];
-    redirectUrl: string[];
+    /** Ссылка на страницу оплаты. Не нужна, если провайдер отдаёт реквизиты (H2H). */
+    redirectUrl?: string[];
     status?: string[];
+    /**
+     * H2H: реквизиты приходят прямо в ответе на создание счёта, покупателя
+     * на страницу провайдера не отправляем. `credentials` — QR/ссылка/номер.
+     */
+    requisites?: {
+      credentials: string[];
+      type?: string[];
+      bank?: string[];
+      owner?: string[];
+      /** Точная сумма перевода (need_to_pay). */
+      payAmount?: string[];
+      comment?: string[];
+    };
   };
   status: RequestTemplate & {
     uuid: string[];
@@ -67,7 +82,15 @@ export interface HttpProviderConfig {
            */
           type: "none";
         }
-      | { type: "headers"; headers: { header: string; secret: "apiKey" | "apiSecret" }[] }
+      | {
+          type: "headers";
+          headers: {
+            header: string;
+            secret: "apiKey" | "apiSecret";
+            /** Префикс значения заголовка, например `Bearer ` (регистр не важен). */
+            prefix?: string;
+          }[];
+        }
       | {
           type: "hmac-sha256";
           header: string;
@@ -145,7 +168,9 @@ export interface ProviderInvoiceInput {
 export interface CreatedProviderInvoice {
   providerId: string;
   providerUuid: string;
+  /** Пустая строка у H2H-провайдера: вместо ссылки приходят `requisites`. */
   redirectUrl: string;
+  requisites?: PaymentRequisites | null;
   status: PaymentStatus;
   rawStatus: string;
   amount?: string;
@@ -303,6 +328,7 @@ const KNOWN_PLACEHOLDERS = new Set([
   "basicAuth",
   "amount",
   "amountRub",
+  "amountRubText",
   "currency",
   "paymentMethod",
   "externalId",
@@ -371,6 +397,9 @@ function buildValues(
     // (ParityPay: amount = 1500.5). Округляем до двух знаков, чтобы в JSON
     // не попали хвосты float.
     amountRub: Math.round(input.amountRub * 100) / 100,
+    // Тот же decimal, но строкой с двумя знаками — для API, где amount
+    // обязан быть строкой ("1500.00").
+    amountRubText: (Math.round(input.amountRub * 100) / 100).toFixed(2),
     currency: config.currency,
     paymentMethod: input.paymentMethod ?? NSPK_PAYMENT_METHOD,
     externalId: input.externalId,
@@ -762,19 +791,28 @@ function validateVerify(
       errors["webhook.verify.headers"] = "Укажите заголовки для сверки";
       return undefined;
     }
-    const headers: { header: string; secret: "apiKey" | "apiSecret" }[] = [];
+    const headers: {
+      header: string;
+      secret: "apiKey" | "apiSecret";
+      prefix?: string;
+    }[] = [];
     for (const item of raw.headers) {
       if (
         !isRecord(item) ||
         typeof item.header !== "string" ||
         !item.header.trim() ||
-        (item.secret !== "apiKey" && item.secret !== "apiSecret")
+        (item.secret !== "apiKey" && item.secret !== "apiSecret") ||
+        (item.prefix !== undefined && typeof item.prefix !== "string")
       ) {
         errors["webhook.verify.headers"] =
-          "Каждый заголовок — { header, secret: apiKey|apiSecret }";
+          "Каждый заголовок — { header, secret: apiKey|apiSecret, prefix? }";
         return undefined;
       }
-      headers.push({ header: item.header.trim(), secret: item.secret });
+      headers.push({
+        header: item.header.trim(),
+        secret: item.secret,
+        ...(item.prefix ? { prefix: item.prefix } : {}),
+      });
     }
     return { type: "headers", headers };
   }
@@ -986,10 +1024,42 @@ export function validateHttpProviderConfig(
   const responseRaw = isRecord(raw.response) ? raw.response : undefined;
   if (!responseRaw) errors.response = "Ожидается объект response";
   const responseUuid = validatePaths(responseRaw?.uuid, "response.uuid", errors);
+  const requisitesRaw = isRecord(responseRaw?.requisites)
+    ? responseRaw.requisites
+    : undefined;
+  const responseRequisitesCredentials = requisitesRaw
+    ? validatePaths(
+        requisitesRaw.credentials,
+        "response.requisites.credentials",
+        errors,
+      )
+    : undefined;
+  const optionalRequisitesPaths = (key: string) =>
+    requisitesRaw?.[key] === undefined
+      ? undefined
+      : validatePaths(
+          requisitesRaw[key],
+          `response.requisites.${key}`,
+          errors,
+          false,
+        );
+  const responseRequisites =
+    requisitesRaw && responseRequisitesCredentials
+      ? {
+          credentials: responseRequisitesCredentials,
+          type: optionalRequisitesPaths("type"),
+          bank: optionalRequisitesPaths("bank"),
+          owner: optionalRequisitesPaths("owner"),
+          payAmount: optionalRequisitesPaths("payAmount"),
+          comment: optionalRequisitesPaths("comment"),
+        }
+      : undefined;
+  // Ссылка на оплату нужна, только если реквизиты не приходят в ответе (H2H).
   const responseRedirect = validatePaths(
     responseRaw?.redirectUrl,
     "response.redirectUrl",
     errors,
+    !requisitesRaw,
   );
   const responseStatus =
     responseRaw?.status === undefined
@@ -1148,8 +1218,17 @@ export function validateHttpProviderConfig(
       ...(signing ? { signing } : {}),
       response: {
         uuid: responseUuid as string[],
-        redirectUrl: responseRedirect as string[],
+        ...(responseRedirect ? { redirectUrl: responseRedirect } : {}),
         ...(responseStatus ? { status: responseStatus } : {}),
+        ...(responseRequisites
+          ? {
+              requisites: Object.fromEntries(
+                Object.entries(responseRequisites).filter(
+                  ([, value]) => value !== undefined,
+                ),
+              ) as NonNullable<typeof responseRequisites>,
+            }
+          : {}),
       },
       status: {
         ...(statusRequest as RequestTemplate),
@@ -1257,6 +1336,40 @@ function matchesSignature(
   );
 }
 
+/** Текст ошибки из тела ответа (`message`/`error`), если провайдер вернул 200 с отказом. */
+function providerMessage(body: unknown, config: HttpProviderConfig): string {
+  if (!isRecord(body)) return "";
+  const text = asString(body.message) ?? asString(body.error);
+  return text ? `: ${redactSecrets(text, config)}` : "";
+}
+
+/** Достаёт реквизиты из ответа создания H2H-счёта; без них счёт покупателю не показать. */
+function extractRequisites(
+  provider: ResolvedProvider,
+  config: HttpProviderConfig,
+  body: unknown,
+): PaymentRequisites {
+  const paths = config.response.requisites;
+  const requisites = paths
+    ? buildRequisites({
+        method: firstPath(body, paths.type),
+        credentials: firstPath(body, paths.credentials),
+        bank: firstPath(body, paths.bank),
+        owner: firstPath(body, paths.owner),
+        payAmount: firstPath(body, paths.payAmount),
+        comment: firstPath(body, paths.comment),
+      })
+    : null;
+  if (!requisites) {
+    throw new ProviderRequestError(
+      provider.id,
+      `в ответе нет корректных реквизитов (пути: ${(paths?.credentials ?? []).join(", ")})${providerMessage(body, config)}`,
+      { retryable: false },
+    );
+  }
+  return requisites;
+}
+
 function httpAdapter(provider: ResolvedProvider, deps: ProviderDeps): ProviderAdapter {
   const config = requireConfig(provider);
 
@@ -1275,28 +1388,36 @@ function httpAdapter(provider: ResolvedProvider, deps: ProviderDeps): ProviderAd
         config.retries + 1,
       );
       const providerUuid = asString(firstPath(body, config.response.uuid));
-      const rawRedirectUrl = asString(firstPath(body, config.response.redirectUrl));
       if (!providerUuid) {
         throw new ProviderRequestError(
           provider.id,
-          `в ответе нет uuid (пути: ${config.response.uuid.join(", ")})`,
+          `в ответе нет uuid (пути: ${config.response.uuid.join(", ")})${providerMessage(body, config)}`,
           { retryable: false },
         );
       }
-      if (!rawRedirectUrl) {
-        throw new ProviderRequestError(
-          provider.id,
-          `в ответе нет ссылки на оплату (пути: ${config.response.redirectUrl.join(", ")})`,
-          { retryable: false },
+      const requisites = config.response.requisites
+        ? extractRequisites(provider, config, body)
+        : null;
+      let redirectUrl = "";
+      if (!requisites) {
+        const rawRedirectUrl = asString(
+          firstPath(body, config.response.redirectUrl),
         );
-      }
-      const redirectUrl = normalizeRedirectUrl(rawRedirectUrl, config.baseUrl);
-      if (!isHttpUrl(redirectUrl)) {
-        throw new ProviderRequestError(
-          provider.id,
-          `некорректная ссылка на оплату: ${rawRedirectUrl}`,
-          { retryable: false },
-        );
+        if (!rawRedirectUrl) {
+          throw new ProviderRequestError(
+            provider.id,
+            `в ответе нет ссылки на оплату (пути: ${(config.response.redirectUrl ?? []).join(", ")})`,
+            { retryable: false },
+          );
+        }
+        redirectUrl = normalizeRedirectUrl(rawRedirectUrl, config.baseUrl);
+        if (!isHttpUrl(redirectUrl)) {
+          throw new ProviderRequestError(
+            provider.id,
+            `некорректная ссылка на оплату: ${rawRedirectUrl}`,
+            { retryable: false },
+          );
+        }
       }
       const rawStatus = asString(firstPath(body, config.response.status)) ?? "pending";
       const mapped = mapStatus(config, rawStatus);
@@ -1304,6 +1425,7 @@ function httpAdapter(provider: ResolvedProvider, deps: ProviderDeps): ProviderAd
         providerId: provider.id,
         providerUuid,
         redirectUrl,
+        requisites,
         status: mapped === "IGNORE" ? "PENDING" : mapped,
         rawStatus,
         // Все суммы внутри приложения — в копейках, независимо от того,
@@ -1389,9 +1511,14 @@ function httpAdapter(provider: ResolvedProvider, deps: ProviderDeps): ProviderAd
         // Подписи нет: тело — только сигнал, статус перечитывается из API.
         ok = true;
       } else if (verify.type === "headers") {
-        ok = verify.headers.every(({ header, secret }) =>
-          safeEqual(config.secrets[secret], headers.get(header) ?? ""),
-        );
+        ok = verify.headers.every(({ header, secret, prefix }) => {
+          let actual = headers.get(header) ?? "";
+          if (prefix) {
+            if (!actual.toLowerCase().startsWith(prefix.toLowerCase())) return false;
+            actual = actual.slice(prefix.length);
+          }
+          return safeEqual(config.secrets[secret], actual);
+        });
       } else if (verify.type === "hmac-sha256") {
         const actual = (headers.get(verify.header) ?? "").trim();
         if (actual) {

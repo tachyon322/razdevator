@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import type { PaymentStatus as Status } from "@/lib/db";
+import type { PaymentRequisites } from "@/lib/payment-requisites";
 import { formatPrice } from "@/lib/plans";
 import { refreshBalance } from "./balance-store";
 import { ArrowRightIcon, CheckIcon, CloseIcon, SpinnerIcon } from "./icons";
+import { PaymentRequisitesCard } from "./PaymentRequisitesCard";
 
 const POLL_MS = 3000;
 /** Счёт живёт 15 минут — дольше ждать нечего. */
@@ -22,6 +24,7 @@ export function PaymentStatus({
   creditRub,
   packName,
   initialStatus,
+  requisites = null,
 }: {
   id: string;
   /** Сколько платит покупатель. */
@@ -31,6 +34,8 @@ export function PaymentStatus({
   /** Название пакета; null — обычное пополнение. */
   packName: string | null;
   initialStatus: Status;
+  /** H2H: реквизиты оплаты, пока счёт не завершён. */
+  requisites?: PaymentRequisites | null;
 }) {
   const [status, setStatus] = useState<Status>(initialStatus);
   const [timedOut, setTimedOut] = useState(false);
@@ -121,6 +126,11 @@ export function PaymentStatus({
           : `${packName ? `${packName}, счёт` : "Счёт"} на ${amount}. Обычно подтверждение приходит за несколько секунд — страница обновится сама.`
       }
     >
+      {requisites && !timedOut ? (
+        <div className="mb-5">
+          <PaymentRequisitesCard requisites={requisites} />
+        </div>
+      ) : null}
       <Link
         href="/support"
         className="text-sm font-semibold text-muted underline underline-offset-2 hover:text-ink"

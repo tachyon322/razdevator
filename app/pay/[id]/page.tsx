@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getGatewayPayment, getPayment, paymentCreditRub } from "@/lib/db";
+import { parseRequisites } from "@/lib/payment-requisites";
 import { findPack } from "@/lib/plans";
 import { PaymentStatus } from "../../components/PaymentStatus";
 import { GatewayReturn } from "../../components/GatewayReturn";
@@ -55,6 +56,7 @@ export default async function PayPage({
           creditRub={paymentCreditRub(payment)}
           packName={findPack(payment.packId)?.name ?? null}
           initialStatus={payment.status}
+          requisites={parseRequisites(payment.requisites)}
         />
       ) : (
         <GatewayReturn />

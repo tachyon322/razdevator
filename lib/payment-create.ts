@@ -23,7 +23,13 @@ import {
   NSPK_PAYMENT_METHOD,
   getAdapter,
   type ProviderDeps,
+  type ResolvedProvider,
 } from "./payment-provider";
+import {
+  parseRequisites,
+  serializeRequisites,
+  type PaymentRequisites,
+} from "./payment-requisites";
 import { resolveProviderChain } from "./payment-settings";
 
 export class NoProviderError extends Error {
@@ -58,6 +64,11 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** H2H-провайдер отдаёт реквизиты в ответе, а не ссылку на свою страницу. */
+export function isH2hProvider(provider: ResolvedProvider): boolean {
+  return Boolean(provider.config?.response.requisites);
+}
+
 function toGatewayStatus(status: PaymentStatus): Exclude<GatewayPaymentStatus, "PAID"> {
   switch (status) {
     case "SUCCESS":
@@ -81,8 +92,11 @@ export interface CreateSiteInvoiceInput {
 
 export interface CreateSiteInvoiceResult {
   payment: Payment;
+  /** У H2H-провайдера — наша страница `/pay/<id>`, на ней показаны реквизиты. */
   redirectUrl: string;
   providerId: string;
+  /** H2H: реквизиты для оплаты; null — оплата на странице провайдера. */
+  requisites: PaymentRequisites | null;
 }
 
 /**
@@ -133,14 +147,16 @@ export async function createSiteInvoice(
       providerUuid: invoice.providerUuid,
       status: invoice.status === "SUCCESS" ? "PENDING" : invoice.status,
       providerStatus: invoice.rawStatus,
+      requisites: serializeRequisites(invoice.requisites),
     });
     console.info(
       `[payments] счёт ${payment.id} на ${input.amountRub} ₽ создан через ${provider.id}`,
     );
     return {
       payment: getPayment(payment.id) as Payment,
-      redirectUrl: invoice.redirectUrl,
+      redirectUrl: invoice.redirectUrl || returnPageUrl,
       providerId: provider.id,
+      requisites: invoice.requisites ?? null,
     };
   }
 
@@ -158,12 +174,18 @@ export interface CreateGatewayInvoiceInput {
   returnUrl: string | null;
   buyerIp: string | null;
   siteUrl: string;
+  /**
+   * Проект умеет показывать реквизиты у себя (H2H). Без флага H2H-провайдеры
+   * пропускаются: у проекта нет страницы, на которой их показать.
+   */
+  h2h?: boolean;
 }
 
 export interface CreateGatewayInvoiceResult {
   payment: GatewayPayment;
   redirectUrl: string;
   providerId: string;
+  requisites: PaymentRequisites | null;
 }
 
 /**
@@ -174,11 +196,22 @@ export async function createGatewayInvoice(
   input: CreateGatewayInvoiceInput,
   deps: ProviderDeps = {},
 ): Promise<CreateGatewayInvoiceResult> {
-  const chain = resolveProviderChain({
+  const resolved = resolveProviderChain({
     service: "project",
     projectId: input.project.id,
   });
-  if (chain.providers.length === 0) {
+  const providers = input.h2h
+    ? resolved.providers
+    : resolved.providers.filter((provider) => !isH2hProvider(provider));
+  if (providers.length < resolved.providers.length) {
+    console.warn(
+      `[gateway] проект ${input.project.id} не поддерживает H2H: пропущены ${resolved.providers
+        .filter(isH2hProvider)
+        .map((provider) => provider.id)
+        .join(", ")}`,
+    );
+  }
+  if (providers.length === 0) {
     throw new NoProviderError();
   }
 
@@ -205,7 +238,7 @@ export async function createGatewayInvoice(
   const returnPageUrl = `${input.siteUrl}/pay/${payment.id}`;
   const failures: ProviderChainFailure[] = [];
 
-  for (const provider of chain.providers) {
+  for (const provider of providers) {
     let invoice;
     try {
       invoice = await getAdapter(provider, deps).createInvoice({
@@ -229,7 +262,8 @@ export async function createGatewayInvoice(
     const attached = attachGatewayProvider(payment.id, {
       providerId: provider.id,
       providerUuid: invoice.providerUuid,
-      redirectUrl: invoice.redirectUrl,
+      redirectUrl: invoice.redirectUrl || returnPageUrl,
+      requisites: serializeRequisites(invoice.requisites),
       status: toGatewayStatus(invoice.status),
       providerStatus: invoice.rawStatus,
     });
@@ -245,8 +279,9 @@ export async function createGatewayInvoice(
     );
     return {
       payment: fresh,
-      redirectUrl: fresh.redirectUrl ?? invoice.redirectUrl,
+      redirectUrl: fresh.redirectUrl ?? (invoice.redirectUrl || returnPageUrl),
       providerId: provider.id,
+      requisites: parseRequisites(fresh.requisites),
     };
   }
 
