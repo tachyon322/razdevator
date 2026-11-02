@@ -31,6 +31,19 @@ const providerId = db.createPaymentProvider({
   name: "ExpressApp",
   config: JSON.stringify({
     ...structuredClone(EXPRESSAPP_PRESET.config),
+    // Пресет — редирект на ссылку; здесь проверяем вариант с реквизитами в ответе.
+    response: {
+      uuid: ["data.payment_id"],
+      status: ["data.status"],
+      requisites: {
+        credentials: ["data.credentials"],
+        type: ["data.type"],
+        bank: ["data.bank"],
+        owner: ["data.account_owner_name"],
+        payAmount: ["data.need_to_pay"],
+        comment: ["data.comment"],
+      },
+    },
     secrets: { apiKey: sealSecret("key_test"), apiSecret: sealSecret("hook_token") },
   }),
   enabled: true,

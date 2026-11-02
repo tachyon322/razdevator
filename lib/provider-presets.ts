@@ -270,15 +270,14 @@ export const PARITYPAY_PRESET: ProviderPreset = {
 };
 
 /**
- * ExpressApp (api.expressapp.info): host-to-host. `POST /v1/payment/h2h`
- * сразу возвращает реквизиты (`data.credentials`), страницы оплаты у
- * провайдера нет — покупателю показываем их у себя. Авторизация —
- * `Authorization: Bearer <API-ключ>`, суммы — decimal-рубли строкой.
+ * ExpressApp (api.expressapp.info): `POST /v1/payment/h2h` возвращает в
+ * `data.credentials` ссылку НСПК (при методе `nspk`) — покупателя уводим на неё
+ * обычным редиректом, как у остальных провайдеров. Авторизация —
+ * `Authorization: Bearer <API-ключ>`, сумма — decimal-рубли строкой.
  *
- * Метод оплаты зашит в теле запроса (`qr-code` — PNG-картинка QR в
- * `credentials`). Другие значения из API: `sbp`, `card`, `nspk`, `deep-link`,
- * `account`, `acq` — меняются правкой `create.body.method` в админке; вид
- * реквизитов (картинка / ссылка / текст) определяется по содержимому.
+ * Метод зашит в теле запроса (`create.body.method`). Другие значения из API:
+ * `sbp`, `card`, `qr-code`, `deep-link`, `account`, `acq` — какие из них отдают
+ * ссылку, а какие реквизиты, зависит от аккаунта; ссылкой должен быть https.
  *
  * Вебхук: `Authorization: Bearer <токен вебхука>` (токен задаётся в кабинете и
  * вводится в поле apiSecret). Тело вебхука — только сигнал: статус перечитываем
@@ -289,7 +288,7 @@ export const EXPRESSAPP_PRESET: ProviderPreset = {
   id: "expressapp",
   name: "ExpressApp",
   description:
-    "H2H: реквизиты (QR/ссылка/номер) приходят в ответе и показываются у нас. apiKey — API-ключ, apiSecret — токен вебхука (Bearer).",
+    "H2H-ссылка НСПК: покупателя уводим на data.credentials. apiKey — API-ключ, apiSecret — токен вебхука (Bearer).",
   config: {
     version: 1,
     baseUrl: "https://api.expressapp.info",
@@ -311,22 +310,15 @@ export const EXPRESSAPP_PRESET: ProviderPreset = {
       body: {
         amount: "{{amountRubText}}",
         currency: "rub",
-        method: "qr-code",
+        method: "nspk",
         clientOrderId: "{{externalId}}",
         webhook: "{{callbackUrl}}",
       },
     },
     response: {
       uuid: ["data.payment_id"],
+      redirectUrl: ["data.credentials"],
       status: ["data.status"],
-      requisites: {
-        credentials: ["data.credentials"],
-        type: ["data.type"],
-        bank: ["data.bank"],
-        owner: ["data.account_owner_name"],
-        payAmount: ["data.need_to_pay"],
-        comment: ["data.comment"],
-      },
     },
     status: {
       method: "GET",

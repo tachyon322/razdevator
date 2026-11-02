@@ -14,6 +14,27 @@ const SECRETS = { apiKey: "key_test", apiSecret: "hook_token" };
 const PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
+/** Вариант «реквизиты в ответе» (QR/номер вместо ссылки) — поддерживается движком, но не пресетом. */
+const REQUISITES_RESPONSE = {
+  uuid: ["data.payment_id"],
+  status: ["data.status"],
+  requisites: {
+    credentials: ["data.credentials"],
+    type: ["data.type"],
+    bank: ["data.bank"],
+    owner: ["data.account_owner_name"],
+    payAmount: ["data.need_to_pay"],
+    comment: ["data.comment"],
+  },
+};
+
+function requisitesConfig(): HttpProviderConfig {
+  return config((raw) => {
+    raw.response = structuredClone(REQUISITES_RESPONSE);
+    ((raw.create as Record<string, unknown>).body as Record<string, unknown>).method = "qr-code";
+  });
+}
+
 function config(mutate?: (raw: Record<string, unknown>) => void): HttpProviderConfig {
   const raw = structuredClone(EXPRESSAPP_PRESET.config) as unknown as Record<string, unknown>;
   mutate?.(raw);
@@ -68,11 +89,11 @@ const CREATED = {
   message: null,
 };
 
-test("ExpressApp: пресет валиден, ссылка на оплату не обязательна", () => {
+test("ExpressApp: пресет валиден, оплата — редирект на ссылку из credentials", () => {
   const cfg = config();
   assert.equal(cfg.baseUrl, "https://api.expressapp.info");
-  assert.equal(cfg.response.redirectUrl, undefined);
-  assert.deepEqual(cfg.response.requisites?.credentials, ["data.credentials"]);
+  assert.deepEqual(cfg.response.redirectUrl, ["data.credentials"]);
+  assert.equal(cfg.response.requisites, undefined);
   assert.equal(cfg.webhook.trustBody, false);
 
   // Без реквизитов и без ссылки конфиг бессмысленен.
@@ -84,9 +105,46 @@ test("ExpressApp: пресет валиден, ссылка на оплату н
   assert.ok("errors" in result);
 });
 
-test("ExpressApp: создание счёта — запрос и разбор реквизитов", async () => {
+const NSPK_LINK = "https://qr.nspk.ru/AS1A0012345678901234567890123456?type=01&bank=100000000111&sum=49900&cur=RUB";
+
+test("ExpressApp: создание счёта — ссылка НСПК из credentials становится redirectUrl", async () => {
   const calls: { url: string; init: RequestInit }[] = [];
   const adapter = getAdapter(provider(config()), {
+    fetch: (async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return jsonResponse({
+        ...CREATED,
+        data: { ...CREATED.data, type: "nspk", credentials: NSPK_LINK },
+      });
+    }) as typeof fetch,
+  });
+
+  const invoice = await adapter.createInvoice(INVOICE);
+
+  assert.equal(calls[0].url, "https://api.expressapp.info/v1/payment/h2h");
+  assert.equal((calls[0].init.headers as Record<string, string>).Authorization, "Bearer key_test");
+  assert.deepEqual(JSON.parse(String(calls[0].init.body)), {
+    amount: "499.00",
+    currency: "rub",
+    method: "nspk",
+    clientOrderId: "pay-1",
+    webhook: "https://site.example/api/payments/webhook/expressapp",
+  });
+  assert.equal(invoice.providerUuid, CREATED.data.payment_id);
+  assert.equal(invoice.redirectUrl, NSPK_LINK);
+  assert.equal(invoice.requisites, null);
+  assert.equal(invoice.amount, "49900");
+
+  // Не ссылка (QR-картинка, номер карты) редиректом быть не может.
+  const notLink = getAdapter(provider(config()), {
+    fetch: (async () => jsonResponse(CREATED)) as typeof fetch,
+  });
+  await assert.rejects(() => notLink.createInvoice(INVOICE), /некорректная ссылка/);
+});
+
+test("ExpressApp (вариант с реквизитами): создание счёта — запрос и разбор реквизитов", async () => {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const adapter = getAdapter(provider(requisitesConfig()), {
     fetch: (async (url: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(url), init: init ?? {} });
       return jsonResponse(CREATED);
@@ -122,7 +180,7 @@ test("ExpressApp: создание счёта — запрос и разбор �
 });
 
 test("ExpressApp: ошибка в теле 200 попадает в сообщение, реквизиты обязательны", async () => {
-  const failing = getAdapter(provider(config()), {
+  const failing = getAdapter(provider(requisitesConfig()), {
     fetch: (async () =>
       jsonResponse({ status: "error", data: null, message: "Нет доступных реквизитов" })) as typeof fetch,
   });
@@ -131,7 +189,7 @@ test("ExpressApp: ошибка в теле 200 попадает в сообще�
     /Нет доступных реквизитов/,
   );
 
-  const noCredentials = getAdapter(provider(config()), {
+  const noCredentials = getAdapter(provider(requisitesConfig()), {
     fetch: (async () =>
       jsonResponse({ status: "success", data: { payment_id: "p-1", credentials: "" } })) as typeof fetch,
   });
