@@ -252,3 +252,39 @@ test("ExpressApp: статус — плоский ответ, суммы в ко
     assert.equal(status.currency, "RUB");
   }
 });
+
+test("ссылка на оплату собирается из uuid, если её нет в ответе (redirectUrlTemplate)", async () => {
+  const mk = (extra: Record<string, unknown>) =>
+    config((raw) => {
+      raw.response = {
+        uuid: ["data.uuid"],
+        status: ["data.status"],
+        ...extra,
+      };
+    });
+  const reply = (data: Record<string, unknown>) =>
+    getAdapter(provider(mk({ redirectUrlTemplate: "https://exenta.pro/pay/{{uuid}}", redirectUrl: ["data.redirectUrl"] })), {
+      fetch: (async () => jsonResponse({ success: true, data })) as typeof fetch,
+    });
+
+  // нет ссылки в ответе → шаблон
+  const built = await reply({ uuid: "550e8400-e29b-41d4-a716-446655440000", status: "PENDING", amount: "49900" }).createInvoice(INVOICE);
+  assert.equal(built.redirectUrl, "https://exenta.pro/pay/550e8400-e29b-41d4-a716-446655440000");
+
+  // ссылка в ответе приоритетнее шаблона
+  const given = await reply({ uuid: "u-1", status: "PENDING", redirectUrl: "https://other.example/p/1" }).createInvoice(INVOICE);
+  assert.equal(given.redirectUrl, "https://other.example/p/1");
+
+  // только шаблон (без redirectUrl) валиден; шаблон без {{uuid}} или не https — нет
+  const valid = (extra: Record<string, unknown>) =>
+    !("errors" in validateHttpProviderConfig({
+      ...structuredClone(EXPRESSAPP_PRESET.config),
+      response: { uuid: ["data.uuid"], ...extra },
+      secrets: SECRETS,
+    }));
+  assert.equal(valid({ redirectUrlTemplate: "https://exenta.pro/pay/{{uuid}}" }), true);
+  assert.equal(valid({ redirectUrlTemplate: "https://exenta.pro/pay/" }), false);
+  assert.equal(valid({ redirectUrlTemplate: "http://exenta.pro/pay/{{uuid}}" }), false);
+  // без ссылки и без шаблона — как раньше, ошибка
+  assert.equal(valid({}), false);
+});

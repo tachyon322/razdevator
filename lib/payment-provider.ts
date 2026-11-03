@@ -49,6 +49,12 @@ export interface HttpProviderConfig {
     uuid: string[];
     /** Ссылка на страницу оплаты. Не нужна, если провайдер отдаёт реквизиты (H2H). */
     redirectUrl?: string[];
+    /**
+     * Ссылка на оплату, собираемая из uuid счёта: `https://host/pay/{{uuid}}`.
+     * Используется, если провайдер не отдаёт ссылку в ответе (или по путям
+     * `redirectUrl` ничего не нашлось).
+     */
+    redirectUrlTemplate?: string;
     status?: string[];
     /**
      * H2H: реквизиты приходят прямо в ответе на создание счёта, покупателя
@@ -1055,11 +1061,25 @@ export function validateHttpProviderConfig(
         }
       : undefined;
   // Ссылка на оплату нужна, только если реквизиты не приходят в ответе (H2H).
+  let redirectTemplate: string | undefined;
+  if (responseRaw?.redirectUrlTemplate !== undefined) {
+    const tpl = responseRaw.redirectUrlTemplate;
+    if (
+      typeof tpl !== "string" ||
+      !/^https:\/\//i.test(tpl.trim()) ||
+      !/\{\{\s*uuid\s*\}\}/.test(tpl)
+    ) {
+      errors["response.redirectUrlTemplate"] =
+        "Ожидается https-адрес с {{uuid}}, например https://host/pay/{{uuid}}";
+    } else {
+      redirectTemplate = tpl.trim();
+    }
+  }
   const responseRedirect = validatePaths(
     responseRaw?.redirectUrl,
     "response.redirectUrl",
     errors,
-    !requisitesRaw,
+    !requisitesRaw && !redirectTemplate,
   );
   const responseStatus =
     responseRaw?.status === undefined
@@ -1219,6 +1239,7 @@ export function validateHttpProviderConfig(
       response: {
         uuid: responseUuid as string[],
         ...(responseRedirect ? { redirectUrl: responseRedirect } : {}),
+        ...(redirectTemplate ? { redirectUrlTemplate: redirectTemplate } : {}),
         ...(responseStatus ? { status: responseStatus } : {}),
         ...(responseRequisites
           ? {
@@ -1400,9 +1421,12 @@ function httpAdapter(provider: ResolvedProvider, deps: ProviderDeps): ProviderAd
         : null;
       let redirectUrl = "";
       if (!requisites) {
-        const rawRedirectUrl = asString(
-          firstPath(body, config.response.redirectUrl),
-        );
+        const template = config.response.redirectUrlTemplate;
+        const rawRedirectUrl =
+          asString(firstPath(body, config.response.redirectUrl ?? [])) ??
+          (template
+            ? template.replace(/\{\{\s*uuid\s*\}\}/g, encodeURIComponent(providerUuid))
+            : undefined);
         if (!rawRedirectUrl) {
           throw new ProviderRequestError(
             provider.id,
