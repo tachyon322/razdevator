@@ -46,6 +46,22 @@ export function videoModel(): string {
     "bytedance/seedance-2.0/image-to-video-spicy";
 }
 
+/**
+ * Приводит ссылку провайдера к абсолютному URL.
+ *
+ * Изображения NanoGPT отдаёт абсолютными ссылками, а готовое видео —
+ * относительным путём `/api/generate-video/content?…&sig=…`. Без резолва
+ * `new URL()` падает на таком пути и успешный рендер умирает с ошибкой
+ * «Некорректная ссылка на результат.»
+ */
+export function absoluteProviderUrl(url: string): string {
+  try {
+    return new URL(url, `${nanogptBaseUrl()}/`).toString();
+  } catch {
+    return url;
+  }
+}
+
 async function parseError(res: Response): Promise<NanoGptError> {
   let message = `NanoGPT вернул ошибку ${res.status}`;
   let code: string | undefined;
@@ -142,7 +158,10 @@ export async function generateImage(
 
   const images: GeneratedImageItem[] = (data.data ?? [])
     .filter((item) => Boolean(item.url))
-    .map((item) => ({ url: item.url as string, storageKey: item.storageKey }));
+    .map((item) => ({
+      url: absoluteProviderUrl(item.url as string),
+      storageKey: item.storageKey,
+    }));
 
   if (images.length === 0) {
     throw new NanoGptError("NanoGPT не вернул изображения.", 502);
@@ -247,10 +266,11 @@ export async function getVideoStatus(
 
   const data = payload.data ?? {};
   const status = (data.status ?? payload.status ?? "IN_QUEUE").toUpperCase() as VideoStatus;
+  const rawVideoUrl = data.output?.video?.url ?? data.output?.videoUrls?.[0];
 
   return {
     status,
-    videoUrl: data.output?.video?.url ?? data.output?.videoUrls?.[0],
+    videoUrl: rawVideoUrl ? absoluteProviderUrl(rawVideoUrl) : undefined,
     error: data.error,
     isNsfw: data.isNSFWError,
     userFriendlyError: data.userFriendlyError,
@@ -287,7 +307,8 @@ export async function fetchAsset(
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
   let parsed: URL;
   try {
-    parsed = new URL(url);
+    // Ссылка провайдера может быть относительной — резолвим от базы NanoGPT.
+    parsed = new URL(absoluteProviderUrl(url));
   } catch {
     throw new NanoGptError("Некорректная ссылка на результат.", 502);
   }
@@ -295,7 +316,9 @@ export async function fetchAsset(
     throw new NanoGptError("Недопустимая схема ссылки на результат.", 502);
   }
 
-  const res = await fetch(url, { signal: AbortSignal.timeout(180_000) });
+  const res = await fetch(parsed.toString(), {
+    signal: AbortSignal.timeout(180_000),
+  });
   if (!res.ok) {
     throw new NanoGptError(
       `Не удалось скачать результат (${res.status}).`,
